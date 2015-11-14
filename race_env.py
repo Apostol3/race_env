@@ -375,6 +375,10 @@ class Game:
             j].position.y < self.b + self.w) or any(i.contact.touching for i in self.cars[j].contacts_gen) or self.time[
                                                                                                               j] > 120
 
+    def is_really_finish(self, j):
+        return (self.r - 5 * self.w < self.cars[j].position.x < self.r - 4 * self.w and self.b < self.cars[
+            j].position.y < self.b + self.w)
+
     def get_min_dist(self, j):
         min_d = -1
         min_point = (0, 0)
@@ -408,7 +412,7 @@ class Game:
         pygame.display.flip()
 
     def tick(self):
-        self.time = list(map((lambda x, y: x + 1 / 60), self.time, self.go))
+        self.time = list(map((lambda x, y: x + (not y)*1 / 60), self.time, self.go))
         self.world.Step(1 / 60, 10, 10)
         self.world.ClearForces()
 
@@ -425,7 +429,7 @@ def main():
         if time.perf_counter() - old_time > 1 / 60:
             old_time = time.perf_counter()
             if not all(game.go):
-                game.time = list(map((lambda x, y: x + 1 / 60), game.time, game.go))
+                game.time = list(map((lambda x, y: x + (not y)*1 / 60), game.time, game.go))
                 game.world.Step(1 / 60, 10, 10)
                 game.outputs = game.get()
                 game.world.ClearForces()
