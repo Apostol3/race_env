@@ -124,19 +124,11 @@ class RayCastClosestCallback(b2.b2RayCastCallback):
 
     def __init__(self, **kwargs):
         b2.b2RayCastCallback.__init__(self, **kwargs)
-        self.fixture = []
-        self.hit = False
         self.fraction = 1
-        self.point = b2.b2Vec2()
-        self.normal = b2.b2Vec2()
 
     def ReportFixture(self, fixture, point, normal, fraction):
         if fixture.filterData.categoryBits != 1:
             return -1
-        self.hit = True
-        self.fixture = fixture
-        self.point = b2.b2Vec2(point)
-        self.normal = b2.b2Vec2(normal)
         self.fraction = fraction
 
         return fraction
@@ -338,19 +330,22 @@ class Game:
             if self.go[i]:
                 continue
             car = self.cars[i]
+            car_vel = car.linearVelocity.length
+            car_R = car.transform.R
+            car_R1 = car_R.col1
             car.linearDamping = 0.2 + 3 * inputs[i][1]
-            if car.linearVelocity.length != 0:
-                car.linearVelocity -= car.transform.R.col1 * car.linearVelocity.length * (
-                    car.linearVelocity.dot(car.transform.R.col1) / car.linearVelocity.length) * 0.1
+            if car_vel != 0:
+                car.linearVelocity -= car_R1 * car_vel * (
+                    car.linearVelocity.dot(car_R1) / car_vel) * 0.1
 
-            if car.linearVelocity.length > 9:
+            if car_vel > 9:
                 _power = 150 * (inputs[i][0] * 0.5 + 0.5)
             else:
                 _power = 150 * (inputs[i][0] * 0.5 + 0.5 - inputs[i][1])
 
             car.ApplyForce(
-                car.transform.R * ((b2.b2Transform((0, 0), b2.b2Rot((inputs[i][2] - inputs[i][3]) / 4))) * (0, _power)),
-                (car.position + (car.transform.R * (0, 5))),
+                car_R * ((b2.b2Transform((0, 0), b2.b2Rot((inputs[i][2] - inputs[i][3]) / 4))) * (0, _power)),
+                (car.position + (car_R * (0, 5))),
                 True)
             self.go[i] |= self.is_finish(i)
             if self.go[i]:
@@ -362,19 +357,22 @@ class Game:
             if self.go[i]:
                 continue
             car = self.cars[i]
-            outputs[i] = [car.linearVelocity.length / 120, car.angularVelocity / 5, -car.angularVelocity / 5]
+            car_pos = car.position
+            car_r = car.transform.R
+            outputs[i] = [min(max(car.linearVelocity.length / 120, 0), 1), car.angularVelocity / 5, 0]
+            outputs[i][2] = min(max(-outputs[i][1], 0), 1)
+            outputs[i][1] = min(max(outputs[i][1], 0), 1)
 
             for j in self.sensors:
                 callback = RayCastClosestCallback()
-                self.world.RayCast(callback, car.position, car.position + car.transform.R * j)
-                outputs[i].append(1 - callback.fraction)
+                self.world.RayCast(callback, car_pos, car_pos + car_r * j)
+                outputs[i].append(min(max(1 - callback.fraction, 0), 1))
 
-            outputs[i] = [min(max(j, 0), 1) for j in outputs[i]]
         return outputs
 
     def is_finish(self, j):
         return (self.r - 5 * self.w < self.cars[j].position.x < self.r - 4 * self.w and self.b < self.cars[
-            j].position.y < self.b + self.w) or any(i.contact.touching for i in self.cars[j].contacts) or self.time[
+            j].position.y < self.b + self.w) or any(i.contact.touching for i in self.cars[j].contacts_gen) or self.time[
                                                                                                               j] > 120
 
     def get_min_dist(self, j):

@@ -7,7 +7,7 @@ import nlab
 import race_env
 
 esi = env.EStartInfo()
-esi.count = 10
+esi.count = 25
 esi.incount = 10
 esi.outcount = 4
 esi.mode = env.SendModes.specified
