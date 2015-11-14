@@ -8,6 +8,7 @@ import Box2D as b2
 import pygame
 from pygame.locals import *
 
+
 class PygameDraw(b2.b2DrawExtended):
     """
     This debug draw class accepts callbacks from Box2D (which specifies what to draw)
@@ -130,8 +131,8 @@ class RayCastClosestCallback(b2.b2RayCastCallback):
         self.normal = b2.b2Vec2()
 
     def ReportFixture(self, fixture, point, normal, fraction):
-        if fixture.filterData.categoryBits == 0:
-            return 1
+        if fixture.filterData.categoryBits != 1:
+            return -1
         self.hit = True
         self.fixture = fixture
         self.point = b2.b2Vec2(point)
@@ -142,27 +143,31 @@ class RayCastClosestCallback(b2.b2RayCastCallback):
 
 
 class Game:
-    def __init__(self):
+    def __init__(self, count):
         pygame.init()
         self.size = self.width, self.height = 640, 480
         self.screen = pygame.display.set_mode(self.size)
         self.font = pygame.font.SysFont('Tahoma', 12, False, False)
 
-        self.inputs = [0, 0, 0, 0]
-        self.outputs = [0, 0, 0, 0, 0]
-        self.finish = False
+        self.inputs = [[0] * 4 for i in range(count)]
+        self.outputs = [[0] * 10 for i in range(count)]
 
-        self.car = []
+        self.count = count
+        self.cars = [[] for i in range(count)]
+        self.time = [0] * count
+        self.go = [False] * count
+
         self.sensors = []
         self.main_line = []
 
-        self.clock = 0
         self.world = []
 
     def create_car(self, x, y):
         fix_def = b2.b2FixtureDef()
         fix_def.friction = 0.3
         fix_def.restitution = 0.1
+        fix_def.filter.categoryBits = 2
+        fix_def.filter.maskBits = 1
 
         fix_def.shape = b2.b2PolygonShape(box=(5, 10))
 
@@ -200,33 +205,39 @@ class Game:
                              ((rect[0][0] + 1, rect[0][1] + rect[1][1] - 2), (rect[1][0] - 2, -val * (rect[1][1] - 4))))
 
     def draw_interface(self):
-        for i in range(len(self.sensors)):
-            pygame.draw.line(self.screen, (255, 255, 255), self.vf(self.car.position),
-                             self.vf(self.car.position + self.car.transform.R * self.sensors[i] * (
-                                 1 - self.outputs[i + 3])))
+        # for j in range(self.count):
+        #    if self.go[j]:
+        #        continue
+        #    for i in range(len(self.sensors)):
+        #        pygame.draw.line(self.screen, (255, 255, 255), self.vf(self.cars[j].position),
+        #                         #self.vf(self.cars[j].position + self.cars[j].transform.R * self.sensors[i] * (
+        #                             1 - self.outputs[j][i + 3])))
 
-        self.draw_bar(((50, 10), (10, 50)), (235, 40, 40), self.inputs[0])
-        self.draw_bar(((65, 10), (10, 50)), (40, 40, 235), self.inputs[1])
-        self.draw_bar(((80, 10), (10, 50)), (40, 235, 40), self.inputs[2])
-        self.draw_bar(((95, 10), (10, 50)), (40, 235, 40), self.inputs[3])
+        if not self.go[0]:
+            self.draw_bar(((50, 10), (10, 50)), (235, 40, 40), self.inputs[0][0])
+            self.draw_bar(((65, 10), (10, 50)), (40, 40, 235), self.inputs[0][1])
+            self.draw_bar(((80, 10), (10, 50)), (40, 235, 40), self.inputs[0][2])
+            self.draw_bar(((95, 10), (10, 50)), (40, 235, 40), self.inputs[0][3])
 
-        self.draw_bar(((350, 10), (10, 50)), (220, 40, 220), self.outputs[0])
-        self.draw_bar(((365, 10), (10, 50)), (220, 220, 40), self.outputs[1])
-        self.draw_bar(((380, 10), (10, 50)), (220, 220, 40), self.outputs[2])
+            self.draw_bar(((350, 10), (10, 50)), (220, 40, 220), self.outputs[0][0])
+            self.draw_bar(((365, 10), (10, 50)), (220, 220, 40), self.outputs[0][1])
+            self.draw_bar(((380, 10), (10, 50)), (220, 220, 40), self.outputs[0][2])
 
-        for i in range(3, len(self.outputs)):
-            self.draw_bar(((350 + i * 15, 10), (10, 50)), (220, 220, 220), self.outputs[i])
+            for i in range(3, len(self.outputs[0])):
+                self.draw_bar(((350 + i * 15, 10), (10, 50)), (220, 220, 220), self.outputs[0][i])
 
-        self.screen.blit(self.font.render("Time: {:.2f}".format(self.clock), True, (255, 255, 255)), (250, 10))
+        self.screen.blit(self.font.render("Time: {:.2f}".format(self.time[0]), True, (255, 255, 255)), (250, 10))
 
-        self.draw_bar(((125, 10), (10, 50)), (40, 235, 40), self.get_min_dist())
+        self.draw_bar(((125, 10), (10, 50)), (40, 235, 40), self.get_min_dist(0))
 
-        self.draw_lamp((250, 30), 'Finished', (200, 200, 40), self.finish)
-        self.draw_lamp((250, 50), 'Touching', (200, 40, 40), any(i.contact.touching for i in self.car.contacts))
+        self.draw_lamp((250, 30), 'Finished', (200, 200, 40), self.go[0])
+        self.draw_lamp((250, 50), 'Touching', (200, 40, 40), any(i.contact.touching for i in self.cars[0].contacts))
 
     def restart(self):
-        self.clock = 0
-        self.finish = False
+        self.time = [0] * self.count
+        self.go = [False] * self.count
+        self.inputs = [[0] * 4 for i in range(self.count)]
+        self.outputs = [[0] * 10 for i in range(self.count)]
         self.world = b2.b2World((0, 0), True)
 
         self.world.renderer = PygameDraw(self.width, self.height, surface=self.screen)
@@ -295,7 +306,7 @@ class Game:
             i.sensor = True
             i.filterData.categoryBits = 0
 
-        self.car = self.create_car(r - 3 * w, l + w / 2)
+        self.cars = [self.create_car(r - 3 * w, l + w / 2) for i in range(self.count)]
 
         n = 3
         rad = 150
@@ -314,53 +325,69 @@ class Game:
 
     def get_inputs(self):
         keys = pygame.key.get_pressed()
-        inputs = []
-        inputs.append(keys[K_UP])
-        inputs.append(keys[K_DOWN])
-        inputs.append(keys[K_LEFT])
-        inputs.append(keys[K_RIGHT])
+        inputs = [[0] * 4 for i in range(self.count)]
+        inputs[0][0] = keys[K_UP]
+        inputs[0][1] = keys[K_DOWN] | keys[K_LSHIFT]
+        inputs[0][2] = keys[K_LEFT]
+        inputs[0][3] = keys[K_RIGHT]
+
         return inputs
 
     def set(self, inputs):
-        self.car.linearDamping = 0.2 + 3 * inputs[1]
-        if self.car.linearVelocity.length != 0:
-            self.car.linearVelocity -= self.car.transform.R.col1 * self.car.linearVelocity.length * (
-                self.car.linearVelocity.dot(self.car.transform.R.col1) / self.car.linearVelocity.length) * 0.1
+        for i in range(self.count):
+            if self.go[i]:
+                continue
+            car = self.cars[i]
+            car.linearDamping = 0.2 + 3 * inputs[i][1]
+            if car.linearVelocity.length != 0:
+                car.linearVelocity -= car.transform.R.col1 * car.linearVelocity.length * (
+                    car.linearVelocity.dot(car.transform.R.col1) / car.linearVelocity.length) * 0.1
 
-        if self.car.linearVelocity.length > 9:
-            _power = 150 * (inputs[0] * 0.5 + 0.5)
-        else:
-            _power = 150 * (inputs[0] * 0.5 + 0.5 - inputs[1])
+            if car.linearVelocity.length > 9:
+                _power = 150 * (inputs[i][0] * 0.5 + 0.5)
+            else:
+                _power = 150 * (inputs[i][0] * 0.5 + 0.5 - inputs[i][1])
 
-        self.car.ApplyForce(
-            self.car.transform.R * ((b2.b2Transform((0, 0), b2.b2Rot((inputs[2] - inputs[3]) / 4))) * (0, _power)),
-            (self.car.position + (self.car.transform.R * (0, 5))),
-            True)
-        self.finish |= self.is_finish()
+            car.ApplyForce(
+                car.transform.R * ((b2.b2Transform((0, 0), b2.b2Rot((inputs[i][2] - inputs[i][3]) / 4))) * (0, _power)),
+                (car.position + (car.transform.R * (0, 5))),
+                True)
+            self.go[i] |= self.is_finish(i)
+            if self.go[i]:
+                car.linearVelocity = (0, 0)
 
     def get(self):
-        outputs = [self.car.linearVelocity.length / 120, self.car.angularVelocity / 5, -self.car.angularVelocity / 5]
+        outputs = [[] for i in range(self.count)]
+        for i in range(self.count):
+            if self.go[i]:
+                continue
+            car = self.cars[i]
+            outputs[i] = [car.linearVelocity.length / 120, car.angularVelocity / 5, -car.angularVelocity / 5]
 
-        for i in self.sensors:
-            callback = RayCastClosestCallback()
-            self.world.RayCast(callback, self.car.position, self.car.position + self.car.transform.R * i)
-            outputs.append(1 - callback.fraction)
+            for j in self.sensors:
+                callback = RayCastClosestCallback()
+                self.world.RayCast(callback, car.position, car.position + car.transform.R * j)
+                outputs[i].append(1 - callback.fraction)
 
-        outputs = [min(max(i, 0), 1) for i in outputs]
+            outputs[i] = [min(max(j, 0), 1) for j in outputs[i]]
         return outputs
 
-    def is_finish(self):
-        #return self.r - 5 * self.w < self.car.position.x < self.r - 4 * self.w and self.b < self.car.position.y < self.b + self.w
-        return (self.r - 5 * self.w < self.car.position.x < self.r - 4 * self.w and self.b < self.car.position.y < self.b + self.w) or any(i.contact.touching for i in self.car.contacts) or self.clock > 120
-    def get_min_dist(self):
+    def is_finish(self, j):
+        return (self.r - 5 * self.w < self.cars[j].position.x < self.r - 4 * self.w and self.b < self.cars[
+            j].position.y < self.b + self.w) or any(i.contact.touching for i in self.cars[j].contacts) or self.time[
+                                                                                                              j] > 120
+
+    def get_min_dist(self, j):
         min_d = -1
         min_point = (0, 0)
         min_fix = ()
         fixtures_cache = self.main_line.fixtures
-        car_shape = self.car.fixtures[0].shape
+        car_shape = self.cars[j].fixtures[0].shape
+        fix_transform = self.main_line.transform
+        car_transform = self.cars[j].transform
         for i in range(len(fixtures_cache)):
             _, pointB, dist, _ = b2.b2Distance(shapeA=car_shape, shapeB=fixtures_cache[i].shape,
-                                               transformA=self.car.transform, transformB=self.main_line.transform)
+                                               transformA=car_transform, transformB=fix_transform)
             if min_d > dist or min_d < 0:
                 min_d = dist
                 min_point = pointB
@@ -383,13 +410,13 @@ class Game:
         pygame.display.flip()
 
     def tick(self):
-        self.clock += 1 / 60
+        self.time = list(map((lambda x, y: x + 1 / 60), self.time, self.go))
         self.world.Step(1 / 60, 10, 10)
         self.world.ClearForces()
 
 
 def main():
-    game = Game()
+    game = Game(2)
     game.restart()
     # This is our little game loop.
     old_time = time.perf_counter()
@@ -399,15 +426,16 @@ def main():
 
         if time.perf_counter() - old_time > 1 / 60:
             old_time = time.perf_counter()
-            if not game.finish:
-                game.clock += 1 / 60
+            if not all(game.go):
+                game.time = list(map((lambda x, y: x + 1 / 60), game.time, game.go))
                 game.world.Step(1 / 60, 10, 10)
                 game.outputs = game.get()
                 game.world.ClearForces()
 
-                game.inputs = list(map((lambda x, y: min(max(x + (y - 0.5) / 10, 0), 1)), game.inputs,
-                                       game.get_inputs()))
-
+                old_inputs = game.inputs[0]
+                game.inputs = game.get_inputs()
+                game.inputs[0] = list(map((lambda x, y: min(max(x + (y - 0.5) / 10, 0), 1)), old_inputs,
+                                          game.inputs[0]))
                 game.set(game.inputs)
 
             game.dispatch_messages()

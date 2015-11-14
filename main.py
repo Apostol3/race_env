@@ -7,14 +7,14 @@ import nlab
 import race_env
 
 esi = env.EStartInfo()
-esi.count = 1
+esi.count = 10
 esi.incount = 10
 esi.outcount = 4
 esi.mode = env.SendModes.specified
 
 last_time = time.perf_counter()
 lab = nlab.NLab()
-game = race_env.Game()
+game = race_env.Game(esi.count)
 game.restart()
 
 lab.connect()
@@ -23,17 +23,17 @@ print(lab.set_start_info(esi))
 print(lab.get_start_info().count)
 
 while lab.is_ok != env.VerificationHeader.stop:
-    while not game.finish:
+    while not all(game.go):
         esdi = env.ESendInfo()
         esdi.head = env.VerificationHeader.ok
         game.outputs = game.get()
-        esdi.data = [game.outputs]
+        esdi.data = game.outputs
         lab.set(esdi)
 
         get = lab.get()
         if lab.is_ok == env.VerificationHeader.stop:
             exit()
-        game.inputs = [max(0, min(1, i)) for i in get.data[0]]
+        game.inputs = [[max(0, min(1, i)) for i in j] for j in get.data]
         game.set(game.inputs)
 
         game.tick()
@@ -46,7 +46,7 @@ while lab.is_ok != env.VerificationHeader.stop:
     eri = env.ERestartInfo()
     eri.result = []
     for i in range(esi.count):
-        eri.result.append(game.get_min_dist()*1000)
+        eri.result.append(game.get_min_dist(i) * 1000)
     print(lab.restart(eri))
     game.restart()
 
