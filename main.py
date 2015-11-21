@@ -1,4 +1,3 @@
-__author__ = 'apostol3'
 import time
 
 import env
@@ -6,8 +5,10 @@ import nlab
 
 import race_env
 
+__author__ = 'apostol3'
+
 esi = env.EStartInfo()
-esi.count = 10
+esi.count = 25
 esi.incount = 10
 esi.outcount = 4
 esi.mode = env.SendModes.specified
@@ -47,7 +48,7 @@ while lab.is_ok != env.VerificationHeader.stop:
     eri.result = []
     for i in range(esi.count):
         dist = game.get_min_dist(i)
-        eri.result.append(dist * 1000 + game.is_really_finish(i)*(12000-game.time[i]*100))
+        eri.result.append(dist * 1000 + game.is_really_finish(i) * (12000 - game.time[i] * 100))
     print(lab.restart(eri))
     game.restart()
 

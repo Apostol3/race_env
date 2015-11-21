@@ -1,22 +1,14 @@
-__author__ = 'apostol3'
-
 import math
 import sys
 import time
 
 import Box2D as b2
 import pygame
-from pygame.locals import *
+
+__author__ = 'apostol3'
 
 
 class PygameDraw(b2.b2DrawExtended):
-    """
-    This debug draw class accepts callbacks from Box2D (which specifies what to draw)
-    and handles all of the rendering.
-
-    If you are writing your own game, you likely will not want to use debug drawing.
-    Debug drawing, as its name implies, is for debugging.
-    """
     surface = None
     axisScale = 10.0
 
@@ -31,33 +23,10 @@ class PygameDraw(b2.b2DrawExtended):
         self.screenSize = (width, height)
         self.axisScale = 5
 
-    def DrawPoint(self, p, size, color):
-        """
-        Draw a single point at point p given a pixel size and color.
-        """
-        self.DrawCircle(p, size / self.zoom, color, drawwidth=0)
-
-    def DrawAABB(self, aabb, color):
-        """
-        Draw a wireframe around the AABB with the given color.
-        """
-        points = [(aabb.lowerBound.x, aabb.lowerBound.y),
-                  (aabb.upperBound.x, aabb.lowerBound.y),
-                  (aabb.upperBound.x, aabb.upperBound.y),
-                  (aabb.lowerBound.x, aabb.upperBound.y)]
-
-        pygame.draw.aalines(self.surface, color, True, points)
-
     def DrawSegment(self, p1, p2, color):
-        """
-        Draw the line segment from p1-p2 with the specified color.
-        """
         pygame.draw.aaline(self.surface, color.bytes, p1, p2)
 
     def DrawTransform(self, xf):
-        """
-        Draw the transform xf on the screen
-        """
         p1 = xf.position
         p2 = self.to_screen(p1 + self.axisScale * xf.R.col1)
         p3 = self.to_screen(p1 + self.axisScale * xf.R.col2)
@@ -67,9 +36,6 @@ class PygameDraw(b2.b2DrawExtended):
         pygame.draw.aaline(self.surface, (0, 255, 0), p1, p3)
 
     def DrawCircle(self, center, radius, color, drawwidth=1):
-        """
-        Draw a wireframe circle given the center, radius, axis of orientation and color.
-        """
         radius *= self.zoom
         if radius < 1:
             radius = 1
@@ -79,24 +45,18 @@ class PygameDraw(b2.b2DrawExtended):
         pygame.draw.circle(self.surface, color.bytes, center, radius, drawwidth)
 
     def DrawSolidCircle(self, center, radius, axis, color):
-        """
-        Draw a solid circle given the center, radius, axis of orientation and color.
-        """
         radius *= self.zoom
         if radius < 1:
             radius = 1
         else:
             radius = int(radius)
 
-        pygame.draw.circle(self.surface, (color / 2).bytes + [127], center, radius, 0)
+        pygame.draw.circle(self.surface, b2.b2Color(color / 2).bytes + [127], center, radius, 0)
         pygame.draw.circle(self.surface, color.bytes, center, radius, 1)
         pygame.draw.aaline(self.surface, (255, 0, 0), center,
                            (center[0] - radius * axis[0], center[1] + radius * axis[1]))
 
     def DrawPolygon(self, vertices, color):
-        """
-        Draw a wireframe polygon given the screen vertices with the specified color.
-        """
         if not vertices:
             return
 
@@ -106,31 +66,28 @@ class PygameDraw(b2.b2DrawExtended):
             pygame.draw.polygon(self.surface, color.bytes, vertices, 1)
 
     def DrawSolidPolygon(self, vertices, color):
-        """
-        Draw a filled polygon given the screen vertices with the specified color.
-        """
         if not vertices:
             return
 
         if len(vertices) == 2:
             pygame.draw.aaline(self.surface, color.bytes, vertices[0], vertices[1])
         else:
-            pygame.draw.polygon(self.surface, (color / 2).bytes + [127], vertices, 0)
+            pygame.draw.polygon(self.surface, b2.b2Color(color / 2).bytes + [127], vertices, 0)
             pygame.draw.polygon(self.surface, color.bytes, vertices, 1)
 
 
 class RayCastClosestCallback(b2.b2RayCastCallback):
     """This callback finds the closest hit"""
 
-    def __init__(self, **kwargs):
-        b2.b2RayCastCallback.__init__(self, **kwargs)
+    def __init__(self):
+        b2.b2RayCastCallback.__init__(self)
         self.fraction = 1
 
     def ReportFixture(self, fixture, point, normal, fraction):
         if fixture.filterData.categoryBits != 1:
             return -1
-        self.fraction = fraction
 
+        self.fraction = fraction
         return fraction
 
 
@@ -141,18 +98,20 @@ class Game:
         self.screen = pygame.display.set_mode(self.size)
         self.font = pygame.font.SysFont('Tahoma', 12, False, False)
 
-        self.inputs = [[0] * 4 for i in range(count)]
-        self.outputs = [[0] * 10 for i in range(count)]
+        self.inputs = [[0] * 4 for _ in range(count)]
+        self.outputs = [[0] * 10 for _ in range(count)]
 
         self.count = count
-        self.cars = [[] for i in range(count)]
+        self.cars = [None for _ in range(count)]
         self.time = [0] * count
         self.go = [False] * count
 
         self.sensors = []
-        self.main_line = []
+        self.main_line = None
 
-        self.world = []
+        self.world = None
+
+        self.w = self.l = self.r = self.b = self.t = 0
 
     def create_car(self, x, y):
         fix_def = b2.b2FixtureDef()
@@ -228,8 +187,8 @@ class Game:
     def restart(self):
         self.time = [0] * self.count
         self.go = [False] * self.count
-        self.inputs = [[0] * 4 for i in range(self.count)]
-        self.outputs = [[0] * 10 for i in range(self.count)]
+        self.inputs = [[0] * 4 for _ in range(self.count)]
+        self.outputs = [[0] * 10 for _ in range(self.count)]
         self.world = b2.b2World((0, 0), True)
 
         self.world.renderer = PygameDraw(self.width, self.height, surface=self.screen)
@@ -242,16 +201,11 @@ class Game:
             convertVertices=isinstance(self.world.renderer, b2.b2DrawExtended)
         )
 
-        self.w = 60
-        self.r = self.width - 10
-        self.l = 0 + 10
-        self.t = self.height - 10 - 60
-        self.b = 0 + 10
-        w = self.w
-        l = self.l
-        r = self.r
-        t = self.t
-        b = self.b
+        self.w = w = 60
+        self.r = r = self.width - 10
+        self.l = l = 0 + 10
+        self.t = t = self.height - 10 - 60
+        self.b = b = 0 + 10
 
         self.world.CreateStaticBody(shapes=[b2.b2EdgeShape(vertices=[(l, b), (r, b)]),
                                             b2.b2EdgeShape(vertices=[(r, b), (r, t)]),
@@ -298,7 +252,7 @@ class Game:
             i.sensor = True
             i.filterData.categoryBits = 0
 
-        self.cars = [self.create_car(r - 3 * w, l + w / 2) for i in range(self.count)]
+        self.cars = [self.create_car(r - 3 * w, l + w / 2) for _ in range(self.count)]
 
         n = 3
         rad = 150
@@ -307,22 +261,21 @@ class Game:
 
     def dispatch_messages(self):
         for event in pygame.event.get():
-            if event.type == QUIT:
+            if event.type == pygame.QUIT:
                 sys.exit()
-            if event.type == KEYDOWN:
-                if event.key == K_RETURN:
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RETURN:
                     self.restart()
-                elif event.key == K_ESCAPE:
+                elif event.key == pygame.K_ESCAPE:
                     sys.exit()
 
     def get_inputs(self):
         keys = pygame.key.get_pressed()
-        inputs = [[0] * 4 for i in range(self.count)]
-        inputs[0][0] = keys[K_UP]
-        inputs[0][1] = keys[K_DOWN] | keys[K_LSHIFT]
-        inputs[0][2] = keys[K_LEFT]
-        inputs[0][3] = keys[K_RIGHT]
-
+        inputs = [[0] * 4 for _ in range(self.count)]
+        inputs[0][0] = keys[pygame.K_UP]
+        inputs[0][1] = keys[pygame.K_DOWN] | keys[pygame.K_LSHIFT]
+        inputs[0][2] = keys[pygame.K_LEFT]
+        inputs[0][3] = keys[pygame.K_RIGHT]
         return inputs
 
     def set(self, inputs):
@@ -331,12 +284,12 @@ class Game:
                 continue
             car = self.cars[i]
             car_vel = car.linearVelocity.length
-            car_R = car.transform.R
-            car_R1 = car_R.col1
+            car_r = car.transform.R
+            car_r1 = car_r.col1
             car.linearDamping = 0.2 + 3 * inputs[i][1]
             if car_vel != 0:
-                car.linearVelocity -= car_R1 * car_vel * (
-                    car.linearVelocity.dot(car_R1) / car_vel) * 0.1
+                car.linearVelocity -= car_r1 * car_vel * (
+                    car.linearVelocity.dot(car_r1) / car_vel) * 0.1
 
             if car_vel > 9:
                 _power = 150 * (inputs[i][0] * 0.5 + 0.5)
@@ -344,24 +297,25 @@ class Game:
                 _power = 150 * (inputs[i][0] * 0.5 + 0.5 - inputs[i][1])
 
             car.ApplyForce(
-                car_R * ((b2.b2Transform((0, 0), b2.b2Rot((inputs[i][2] - inputs[i][3]) / 4))) * (0, _power)),
-                (car.position + (car_R * (0, 5))),
+                car_r * ((b2.b2Transform((0, 0), b2.b2Rot((inputs[i][2] - inputs[i][3]) / 4))) * (0, _power)),
+                (car.position + (car_r * (0, 5))),
                 True)
             self.go[i] |= self.is_finish(i)
             if self.go[i]:
-                car.linearVelocity = (0, 0)
+                car.linearVelocity = b2.b2Vec2(0, 0)
 
     def get(self):
-        outputs = [[] for i in range(self.count)]
+        outputs = [None for _ in range(self.count)]
         for i in range(self.count):
             if self.go[i]:
                 continue
             car = self.cars[i]
             car_pos = car.position
             car_r = car.transform.R
-            outputs[i] = [min(max(car.linearVelocity.length / 120, 0), 1), car.angularVelocity / 5, 0]
-            outputs[i][2] = min(max(-outputs[i][1], 0), 1)
-            outputs[i][1] = min(max(outputs[i][1], 0), 1)
+            car_ang = car.angularVelocity / 5
+            outputs[i] = [min(max(car.linearVelocity.length / 120, 0), 1), 0, 0]
+            outputs[i][2] = min(max(-car_ang, 0), 1)
+            outputs[i][1] = min(max(car_ang, 0), 1)
 
             for j in self.sensors:
                 callback = RayCastClosestCallback()
@@ -371,13 +325,16 @@ class Game:
         return outputs
 
     def is_finish(self, j):
-        return (self.r - 5 * self.w < self.cars[j].position.x < self.r - 4 * self.w and self.b < self.cars[
-            j].position.y < self.b + self.w) or any(i.contact.touching for i in self.cars[j].contacts_gen) or self.time[
-                                                                                                              j] > 120
+        return (
+                   self.r - 5 * self.w < self.cars[j].position.x < self.r - 4 * self.w and
+                   self.b < self.cars[j].position.y < self.b + self.w
+               ) \
+               or any(i.contact.touching for i in self.cars[j].contacts_gen) \
+               or self.time[j] > 120
 
     def is_really_finish(self, j):
-        return (self.r - 5 * self.w < self.cars[j].position.x < self.r - 4 * self.w and self.b < self.cars[
-            j].position.y < self.b + self.w)
+        return (self.r - 5 * self.w < self.cars[j].position.x < self.r - 4 * self.w and
+                self.b < self.cars[j].position.y < self.b + self.w)
 
     def get_min_dist(self, j):
         min_d = -1
@@ -388,11 +345,11 @@ class Game:
         fix_transform = self.main_line.transform
         car_transform = self.cars[j].transform
         for i in range(len(fixtures_cache)):
-            _, pointB, dist, _ = b2.b2Distance(shapeA=car_shape, shapeB=fixtures_cache[i].shape,
-                                               transformA=car_transform, transformB=fix_transform)
+            _, point_b, dist, _ = b2.b2Distance(shapeA=car_shape, shapeB=fixtures_cache[i].shape,
+                                                transformA=car_transform, transformB=fix_transform)
             if min_d > dist or min_d < 0:
                 min_d = dist
-                min_point = pointB
+                min_point = point_b
                 min_fix = i
 
         dist_start = 0
@@ -412,7 +369,7 @@ class Game:
         pygame.display.flip()
 
     def tick(self):
-        self.time = list(map((lambda x, y: x + (not y)*1 / 60), self.time, self.go))
+        self.time = list(map((lambda x, y: x + (not y) * 1 / 60), self.time, self.go))
         self.world.Step(1 / 60, 10, 10)
         self.world.ClearForces()
 
@@ -420,7 +377,7 @@ class Game:
 def main():
     game = Game(2)
     game.restart()
-    # This is our little game loop.
+
     old_time = time.perf_counter()
     old_old_time = time.perf_counter()
 
@@ -429,7 +386,7 @@ def main():
         if time.perf_counter() - old_time > 1 / 60:
             old_time = time.perf_counter()
             if not all(game.go):
-                game.time = list(map((lambda x, y: x + (not y)*1 / 60), game.time, game.go))
+                game.time = list(map((lambda x, y: x + (not y) * 1 / 60), game.time, game.go))
                 game.world.Step(1 / 60, 10, 10)
                 game.outputs = game.get()
                 game.world.ClearForces()
