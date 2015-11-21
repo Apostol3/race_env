@@ -34,7 +34,7 @@ while lab.is_ok != env.VerificationHeader.stop:
         get = lab.get()
         if lab.is_ok == env.VerificationHeader.stop:
             exit()
-        game.inputs = [[max(0, min(1, i)) for i in j] for j in get.data]
+        game.inputs = get.data
         game.set(game.inputs)
 
         game.tick()

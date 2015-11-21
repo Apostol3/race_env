@@ -286,6 +286,7 @@ class Game:
             car_vel = car.linearVelocity.length
             car_r = car.transform.R
             car_r1 = car_r.col1
+            inputs[i] = [max(0, min(1, i)) for i in inputs[i]]
             car.linearDamping = 0.2 + 3 * inputs[i][1]
             if car_vel != 0:
                 car.linearVelocity -= car_r1 * car_vel * (
