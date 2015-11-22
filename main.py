@@ -1,3 +1,4 @@
+import sys
 import time
 
 import env
@@ -7,6 +8,12 @@ import race_env
 
 __author__ = 'apostol3'
 
+pipe_str = "\\\\.\\pipe\\{}"
+pipe_name = "nlab"
+
+if len(sys.argv) >= 2:
+    pipe_name = sys.argv[1]
+
 esi = env.EStartInfo()
 esi.count = 25
 esi.incount = 10
@@ -14,7 +21,7 @@ esi.outcount = 4
 esi.mode = env.SendModes.specified
 
 last_time = time.perf_counter()
-lab = nlab.NLab()
+lab = nlab.NLab(pipe_str.format(pipe_name))
 game = race_env.Game(esi.count)
 game.restart()
 
