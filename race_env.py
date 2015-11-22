@@ -307,6 +307,7 @@ class Game:
 
     def get(self):
         outputs = [None for _ in range(self.count)]
+        callback = RayCastClosestCallback()
         for i in range(self.count):
             if self.go[i]:
                 continue
@@ -314,12 +315,12 @@ class Game:
             car_pos = car.position
             car_r = car.transform.R
             car_ang = car.angularVelocity / 5
-            outputs[i] = [min(max(car.linearVelocity.length / 120, 0), 1), 0, 0]
-            outputs[i][2] = min(max(-car_ang, 0), 1)
-            outputs[i][1] = min(max(car_ang, 0), 1)
+            outputs[i] = [min(max(car.linearVelocity.length / 120, 0), 1),
+                          min(max(car_ang, 0), 1),
+                          min(max(-car_ang, 0), 1)]
 
             for j in self.sensors:
-                callback = RayCastClosestCallback()
+                callback.fraction = 1
                 self.world.RayCast(callback, car_pos, car_pos + car_r * j)
                 outputs[i].append(min(max(1 - callback.fraction, 0), 1))
 
