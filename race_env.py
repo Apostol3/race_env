@@ -10,7 +10,6 @@ __author__ = 'apostol3'
 
 class PygameDraw(b2.b2DrawExtended):
     surface = None
-    axisScale = 10.0
 
     def __init__(self, width, height, **kwargs):
         b2.b2DrawExtended.__init__(self, **kwargs)
@@ -21,7 +20,7 @@ class PygameDraw(b2.b2DrawExtended):
         self.center = (width / 2, height / 2)
         self.offset = (0, 0)
         self.screenSize = (width, height)
-        self.axisScale = 5
+        self.axisScale = 0.5
 
     def DrawSegment(self, p1, p2, color):
         pygame.draw.aaline(self.surface, color.bytes, p1, p2)
@@ -112,6 +111,8 @@ class Game:
         self.world = None
 
         self.w = self.l = self.r = self.b = self.t = 0
+        self.dt = 1 / 60
+        self.scale = 1 / 10
 
     def create_car(self, x, y):
         fix_def = b2.b2FixtureDef()
@@ -120,13 +121,13 @@ class Game:
         fix_def.filter.categoryBits = 2
         fix_def.filter.maskBits = 1
 
-        fix_def.shape = b2.b2PolygonShape(box=(5, 10))
+        fix_def.shape = b2.b2PolygonShape(box=(5*self.scale, 10*self.scale))
 
         body_def = b2.b2BodyDef()
         body_def.type = b2.b2_dynamicBody
         body_def.position = (x, y)
         body_def.linearDamping = 0.2
-        body_def.angularDamping = 15
+        body_def.angularDamping = 15 / math.sqrt(self.dt*60)
 
         body = self.world.CreateBody(body_def)
         body.CreateFixture(fix_def)
@@ -160,9 +161,9 @@ class Game:
         #    if self.go[j]:
         #        continue
         #    for i in range(len(self.sensors)):
-        #        pygame.draw.line(self.screen, (255, 255, 255), self.vf(self.cars[j].position),
-        #                         #self.vf(self.cars[j].position + self.cars[j].transform.R * self.sensors[i] * (
-        #                             1 - self.outputs[j][i + 3])))
+        #        pygame.draw.line(self.screen, (255, 255, 255), self.vf(self.cars[j].position/self.scale),
+        #                         self.vf(self.cars[j].position/self.scale + self.cars[j].transform.R * self.sensors[i] * (
+        #                             1 - self.outputs[j][i + 3])/self.scale))
 
         if not self.go[0]:
             self.draw_bar(((50, 10), (10, 50)), (235, 40, 40), self.inputs[0][0])
@@ -200,12 +201,13 @@ class Game:
             drawCOMs=True,
             convertVertices=isinstance(self.world.renderer, b2.b2DrawExtended)
         )
+        self.world.renderer.zoom = 1/self.scale
 
-        self.w = w = 60
-        self.r = r = self.width - 10
-        self.l = l = 0 + 10
-        self.t = t = self.height - 10 - 60
-        self.b = b = 0 + 10
+        self.w = w = 60*self.scale
+        self.r = r = (self.width - 10)*self.scale
+        self.l = l = (0 + 10)*self.scale
+        self.t = t = (self.height - 10 - 60)*self.scale
+        self.b = b = (0 + 10)*self.scale
 
         self.world.CreateStaticBody(shapes=[b2.b2EdgeShape(vertices=[(l, b), (r, b)]),
                                             b2.b2EdgeShape(vertices=[(r, b), (r, t)]),
@@ -255,7 +257,7 @@ class Game:
         self.cars = [self.create_car(r - 3 * w, l + w / 2) for _ in range(self.count)]
 
         n = 3
-        rad = 150
+        rad = 150*self.scale
         angle = math.pi / 4
         self.sensors = [(math.sin(i * angle / n) * rad, math.cos(i * angle / n) * rad) for i in range(-n, n + 1)]
 
@@ -290,16 +292,16 @@ class Game:
             car.linearDamping = 0.2 + 3 * inputs[i][1]
             if car_vel != 0:
                 car.linearVelocity -= car_r1 * car_vel * (
-                    car.linearVelocity.dot(car_r1) / car_vel) * 0.1
+                    car.linearVelocity.dot(car_r1) / car_vel) * 6 * self.dt
 
-            if car_vel > 9:
-                _power = 150 * (inputs[i][0] * 0.5 + 0.5)
+            if car_vel > 9*self.scale:
+                _power = 150*self.scale* (inputs[i][0] * 0.5 + 0.5)
             else:
-                _power = 150 * (inputs[i][0] * 0.5 + 0.5 - inputs[i][1])
+                _power = 150*self.scale * (inputs[i][0] * 0.5 + 0.5 - inputs[i][1])
 
             car.ApplyForce(
                 car_r * ((b2.b2Transform((0, 0), b2.b2Rot((inputs[i][2] - inputs[i][3]) / 4))) * (0, _power)),
-                (car.position + (car_r * (0, 5))),
+                (car.position + (car_r * (0, 5/self.scale))),
                 True)
             self.go[i] |= self.is_finish(i)
             if self.go[i]:
@@ -315,7 +317,7 @@ class Game:
             car_pos = car.position
             car_r = car.transform.R
             car_ang = car.angularVelocity / 5
-            outputs[i] = [min(max(car.linearVelocity.length / 120, 0), 1),
+            outputs[i] = [min(max(car.linearVelocity.length / (180*self.scale), 0), 1),
                           min(max(car_ang, 0), 1),
                           min(max(-car_ang, 0), 1)]
 
@@ -361,7 +363,7 @@ class Game:
 
         dist_in = (b2.b2Vec2(fixtures_cache[min_fix].shape.vertices[0]) - b2.b2Vec2(min_point)).length
 
-        result_dist = (dist_start + dist_in + min_d) / 3200
+        result_dist = (dist_start + dist_in + min_d) / (3200*self.scale)
         return result_dist
 
     def draw(self):
@@ -371,8 +373,8 @@ class Game:
         pygame.display.flip()
 
     def tick(self):
-        self.time = list(map((lambda x, y: x + (not y) * 1 / 60), self.time, self.go))
-        self.world.Step(1 / 60, 10, 10)
+        self.time = list(map((lambda x, y: x + (not y) * self.dt), self.time, self.go))
+        self.world.Step(self.dt, 10, 10)
         self.world.ClearForces()
 
 
@@ -385,17 +387,17 @@ def main():
 
     while old_time - old_old_time < 60000:
 
-        if time.perf_counter() - old_time > 1 / 60:
+        if time.perf_counter() - old_time > game.dt:
             old_time = time.perf_counter()
             if not all(game.go):
-                game.time = list(map((lambda x, y: x + (not y) * 1 / 60), game.time, game.go))
-                game.world.Step(1 / 60, 10, 10)
+                game.time = list(map((lambda x, y: x + (not y) * game.dt), game.time, game.go))
+                game.world.Step(game.dt, 10, 10)
                 game.outputs = game.get()
                 game.world.ClearForces()
 
                 old_inputs = game.inputs[0]
                 game.inputs = game.get_inputs()
-                game.inputs[0] = list(map((lambda x, y: min(max(x + (y - 0.5) / 10, 0), 1)), old_inputs,
+                game.inputs[0] = list(map((lambda x, y: min(max(x + (y - 0.5) * 6 * game.dt, 0), 1)), old_inputs,
                                           game.inputs[0]))
                 game.set(game.inputs)
 
