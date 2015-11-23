@@ -1,4 +1,4 @@
-import sys
+import argparse
 import time
 
 import env
@@ -8,14 +8,27 @@ import race_env
 
 __author__ = 'apostol3'
 
-pipe_str = "\\\\.\\pipe\\{}"
-pipe_name = "nlab"
 
-if len(sys.argv) >= 2:
-    pipe_name = sys.argv[1]
+def above_zero(string):
+    value = int(string)
+    if value <= 0:
+        msg = "{} not above zero".format(value)
+        raise argparse.ArgumentTypeError(msg)
+    return value
+
+
+parser = argparse.ArgumentParser(description="race enviroment for nlab")
+parser.add_argument("-p", "--pipe", help="pipe name (default: %(default)s)",
+                    metavar="name", type=str, dest="pipe_name", default="nlab")
+parser.add_argument("-c", "--count", help="number of players (default: %(default)s)",
+                    metavar="n", type=above_zero, dest="count", default=25)
+args = parser.parse_args()
+
+pipe_str = "\\\\.\\pipe\\{}"
+pipe_name = args.pipe_name
 
 esi = env.EStartInfo()
-esi.count = 25
+esi.count = args.count
 esi.incount = 10
 esi.outcount = 4
 esi.mode = env.SendModes.specified
