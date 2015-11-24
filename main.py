@@ -40,8 +40,8 @@ game.restart()
 
 lab.connect()
 
-print(lab.set_start_info(esi))
-print(lab.get_start_info().count)
+lab.set_start_info(esi)
+lab.get_start_info()
 
 while lab.is_ok != env.VerificationHeader.stop:
     while not all(game.go):
@@ -69,9 +69,9 @@ while lab.is_ok != env.VerificationHeader.stop:
     for i in range(esi.count):
         dist = game.get_min_dist(i)
         eri.result.append(dist * 1000 + game.is_really_finish(i) * (12000 - game.time[i] * 100))
-    print(lab.restart(eri))
+    lab.restart(eri)
     game.restart()
 
-    print(lab.get())
+    lab.get()
     if lab.is_ok == env.VerificationHeader.stop:
         exit()
