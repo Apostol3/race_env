@@ -60,7 +60,7 @@ class PygameDraw(b2.b2DrawExtended):
             return
 
         if len(vertices) == 2:
-            pygame.draw.aaline(self.surface, color.bytes, vertices[0], vertices)
+            pygame.draw.aaline(self.surface, color.bytes, vertices[0], vertices[1])
         else:
             pygame.draw.polygon(self.surface, color.bytes, vertices, 1)
 
@@ -73,6 +73,33 @@ class PygameDraw(b2.b2DrawExtended):
         else:
             pygame.draw.polygon(self.surface, b2.b2Color(color / 2).bytes + [127], vertices, 0)
             pygame.draw.polygon(self.surface, color.bytes, vertices, 1)
+
+    def DrawPolygonShape(self, shape, transform, color):
+        vert = [self.to_screen(b2.b2Mul(transform, v)) for v in shape.vertices]
+        self.DrawSolidPolygon(vert, color)
+
+    def DrawShape(self, shape, transform, color):
+        if isinstance(shape, b2.b2PolygonShape):
+            self.DrawPolygonShape(shape, transform, color)
+        elif isinstance(shape, b2.b2EdgeShape):
+            v1 = self.to_screen(b2.b2Mul(transform, shape.vertex1))
+            v2 = self.to_screen(b2.b2Mul(transform, shape.vertex2))
+            self.DrawSegment(v1, v2, color)
+        elif isinstance(shape, b2.b2CircleShape):
+            raise NotImplementedError()
+        elif isinstance(shape, b2.b2LoopShape):
+            vertices = shape.vertices
+            v1 = b2.b2Mul(transform, vertices[-1])
+            for v2 in vertices:
+                v2 = b2.b2Mul(transform, v2)
+                self.DrawSegment(v1, v2, color)
+                v1 = v2
+
+    def DrawBody(self, body, color):
+        tr = body.transform
+        for fixture in body:
+            self.DrawShape(fixture.shape, tr, color)
+        self.DrawTransform(tr)
 
 
 class RayCastClosestCallback(b2.b2RayCastCallback):
@@ -107,12 +134,19 @@ class Game:
 
         self.sensors = []
         self.main_line = None
+        self.walls = []
 
         self.world = None
 
         self.w = self.l = self.r = self.b = self.t = 0
         self.dt = 1 / 60
         self.scale = 1 / 10
+
+        self.colors = {'car': (174, 130, 120), 'dead_car': (98, 54, 50),
+                       'selected_car': (220, 200, 165), 'wall': (173, 255, 115), 'main_line': (13, 53, 72)}
+
+        for k in self.colors:
+            self.colors[k] = b2.b2Color(self.colors[k][0] / 255, self.colors[k][1] / 255, self.colors[k][2] / 255)
 
     def create_car(self, x, y):
         fix_def = b2.b2FixtureDef()
@@ -121,13 +155,13 @@ class Game:
         fix_def.filter.categoryBits = 2
         fix_def.filter.maskBits = 1
 
-        fix_def.shape = b2.b2PolygonShape(box=(5*self.scale, 10*self.scale))
+        fix_def.shape = b2.b2PolygonShape(box=(5 * self.scale, 10 * self.scale))
 
         body_def = b2.b2BodyDef()
         body_def.type = b2.b2_dynamicBody
         body_def.position = (x, y)
         body_def.linearDamping = 0.2
-        body_def.angularDamping = 15 / math.sqrt(self.dt*60)
+        body_def.angularDamping = 15 / math.sqrt(self.dt * 60)
 
         body = self.world.CreateBody(body_def)
         body.CreateFixture(fix_def)
@@ -158,16 +192,17 @@ class Game:
 
     def draw_interface(self):
         # for j in range(self.count):
-        #    if self.go[j]:
-        #        continue
-        #    for i in range(len(self.sensors)):
-        #        pygame.draw.line(self.screen, (255, 255, 255), self.vf(self.cars[j].position/self.scale),
-        #                         self.vf(self.cars[j].position/self.scale + self.cars[j].transform.R * self.sensors[i] * (
-        #                             1 - self.outputs[j][i + 3])/self.scale))
+        #     if self.go[j]:
+        #         continue
+        #     for i in range(len(self.sensors)):
+        #         pygame.draw.line(self.screen, (110, 110, 110, 155), self.world.renderer.to_screen(self.cars[j].position),
+        #                          self.world.renderer.to_screen(
+        #                              b2.b2Mul(self.cars[j].transform, (b2.b2Vec2(self.sensors[i]) * (
+        #                                  1 - self.outputs[j][i + 3])))))
 
         if not self.go[0]:
-            self.draw_bar(((50, 10), (10, 50)), (235, 40, 40), self.inputs[0][0])
-            self.draw_bar(((65, 10), (10, 50)), (40, 40, 235), self.inputs[0][1])
+            self.draw_bar(((50, 10), (10, 50)), (40, 40, 235), self.inputs[0][0])
+            self.draw_bar(((65, 10), (10, 50)), (235, 40, 40), self.inputs[0][1])
             self.draw_bar(((80, 10), (10, 50)), (40, 235, 40), self.inputs[0][2])
             self.draw_bar(((95, 10), (10, 50)), (40, 235, 40), self.inputs[0][3])
 
@@ -185,6 +220,22 @@ class Game:
         self.draw_lamp((250, 30), 'Finished', (200, 200, 40), self.go[0])
         self.draw_lamp((250, 50), 'Touching', (200, 40, 40), any(i.contact.touching for i in self.cars[0].contacts))
 
+    def draw_world(self):
+        for b in self.walls:
+            self.world.renderer.DrawBody(b, self.colors['wall'])
+
+        self.world.renderer.DrawBody(self.main_line, self.colors['main_line'])
+
+        for j in range(self.count - 1, 0, -1):
+            if self.go[j]:
+                self.world.renderer.DrawBody(self.cars[j], self.colors['dead_car'])
+
+        for j in range(self.count - 1, 0, -1):
+            if not self.go[j]:
+                self.world.renderer.DrawBody(self.cars[j], self.colors['car'])
+
+        self.world.renderer.DrawBody(self.cars[0], self.colors['selected_car'])
+
     def restart(self):
         self.time = [0] * self.count
         self.go = [False] * self.count
@@ -195,42 +246,50 @@ class Game:
         self.world.renderer = PygameDraw(self.width, self.height, surface=self.screen)
         self.world.renderer.flags = dict(
             drawShapes=True,
-            drawJoints=True,
+            drawJoints=False,
             drawAABBs=False,
             drawPairs=False,
             drawCOMs=True,
             convertVertices=isinstance(self.world.renderer, b2.b2DrawExtended)
         )
-        self.world.renderer.zoom = 1/self.scale
+        self.world.renderer.zoom = 1 / self.scale
 
-        self.w = w = 60*self.scale
-        self.r = r = (self.width - 10)*self.scale
-        self.l = l = (0 + 10)*self.scale
-        self.t = t = (self.height - 10 - 60)*self.scale
-        self.b = b = (0 + 10)*self.scale
+        self.w = w = 60 * self.scale
+        self.r = r = (self.width - 10) * self.scale
+        self.l = l = (0 + 10) * self.scale
+        self.t = t = (self.height - 10 - 60) * self.scale
+        self.b = b = (0 + 10) * self.scale
 
-        self.world.CreateStaticBody(shapes=[b2.b2EdgeShape(vertices=[(l, b), (r, b)]),
-                                            b2.b2EdgeShape(vertices=[(r, b), (r, t)]),
-                                            b2.b2EdgeShape(vertices=[(r, t), (l, t)]),
-                                            b2.b2EdgeShape(vertices=[(l, t), (l, b)])])
+        self.walls = []
 
-        self.world.CreateStaticBody(shapes=[b2.b2EdgeShape(vertices=[(l + w, t - w), (r - w, t - w)]),
-                                            b2.b2EdgeShape(vertices=[(r - w, t - w), (r - w, b + w)]),
-                                            b2.b2EdgeShape(vertices=[(r - w, b + w), (l + w, b + w)]),
-                                            b2.b2EdgeShape(vertices=[(l + w, b + w), (l + w, t - 3 * w)]),
-                                            b2.b2EdgeShape(vertices=[(r - 3 * w, b + w), (r - 3 * w, t - 3 * w)]),
-                                            b2.b2EdgeShape(vertices=[(r - 4 * w, b + w), (r - 4 * w, b)]), ])
+        self.walls.append(self.world.CreateStaticBody(shapes=[b2.b2EdgeShape(vertices=[(l, b), (r, b)]),
+                                                              b2.b2EdgeShape(vertices=[(r, b), (r, t)]),
+                                                              b2.b2EdgeShape(vertices=[(r, t), (l, t)]),
+                                                              b2.b2EdgeShape(vertices=[(l, t), (l, b)])]))
 
-        self.world.CreateStaticBody(shapes=[b2.b2EdgeShape(vertices=[(l, t - 2 * w), (r - 2 * w, t - 2 * w)]),
-                                            b2.b2EdgeShape(vertices=[(r - 2 * w, t - 2 * w), (r - 2 * w, b + 2 * w)]),
-                                            b2.b2EdgeShape(vertices=[(l + 2 * w, t - 2 * w),
-                                                                     ((r - 4 * w + l + 2 * w) / 2, b + 2 * w)]),
-                                            b2.b2EdgeShape(
-                                                vertices=[(l + w, t - 3 * w), ((r - 4 * w + l + 2 * w) / 2, b + w)]),
-                                            b2.b2EdgeShape(vertices=[((r - 4 * w + l + 2 * w) / 2, b + w),
-                                                                     (r - 3 * w, t - 3 * w)]),
-                                            b2.b2EdgeShape(vertices=[((r - 4 * w + l + 2 * w) / 2, b + 2 * w),
-                                                                     (r - 4 * w, t - 2 * w)])])
+        self.walls.append(self.world.CreateStaticBody(shapes=[b2.b2EdgeShape(vertices=[(l + w, t - w), (r - w, t - w)]),
+                                                              b2.b2EdgeShape(vertices=[(r - w, t - w), (r - w, b + w)]),
+                                                              b2.b2EdgeShape(vertices=[(r - w, b + w), (l + w, b + w)]),
+                                                              b2.b2EdgeShape(
+                                                                  vertices=[(l + w, b + w), (l + w, t - 3 * w)]),
+                                                              b2.b2EdgeShape(vertices=[(r - 3 * w, b + w),
+                                                                                       (r - 3 * w, t - 3 * w)]),
+                                                              b2.b2EdgeShape(
+                                                                  vertices=[(r - 4 * w, b + w), (r - 4 * w, b)]), ]))
+
+        self.walls.append(
+            self.world.CreateStaticBody(shapes=[b2.b2EdgeShape(vertices=[(l, t - 2 * w), (r - 2 * w, t - 2 * w)]),
+                                                b2.b2EdgeShape(
+                                                    vertices=[(r - 2 * w, t - 2 * w), (r - 2 * w, b + 2 * w)]),
+                                                b2.b2EdgeShape(vertices=[(l + 2 * w, t - 2 * w),
+                                                                         ((r - 4 * w + l + 2 * w) / 2, b + 2 * w)]),
+                                                b2.b2EdgeShape(
+                                                    vertices=[(l + w, t - 3 * w),
+                                                              ((r - 4 * w + l + 2 * w) / 2, b + w)]),
+                                                b2.b2EdgeShape(vertices=[((r - 4 * w + l + 2 * w) / 2, b + w),
+                                                                         (r - 3 * w, t - 3 * w)]),
+                                                b2.b2EdgeShape(vertices=[((r - 4 * w + l + 2 * w) / 2, b + 2 * w),
+                                                                         (r - 4 * w, t - 2 * w)])]))
 
         self.main_line = self.world.CreateStaticBody(
             shapes=[b2.b2EdgeShape(vertices=[(r - 7 * w / 2, b + w / 2), (r - w / 2, b + w / 2)]),
@@ -257,7 +316,7 @@ class Game:
         self.cars = [self.create_car(r - 3 * w, l + w / 2) for _ in range(self.count)]
 
         n = 3
-        rad = 150*self.scale
+        rad = 150 * self.scale
         angle = math.pi / 4
         self.sensors = [(math.sin(i * angle / n) * rad, math.cos(i * angle / n) * rad) for i in range(-n, n + 1)]
 
@@ -294,14 +353,14 @@ class Game:
                 car.linearVelocity -= car_r1 * car_vel * (
                     car.linearVelocity.dot(car_r1) / car_vel) * 6 * self.dt
 
-            if car_vel > 9*self.scale:
-                _power = 150*self.scale* (inputs[i][0] * 0.5 + 0.5)
+            if car_vel > 9 * self.scale:
+                _power = 150 * self.scale * (inputs[i][0] * 0.5 + 0.5)
             else:
-                _power = 150*self.scale * (inputs[i][0] * 0.5 + 0.5 - inputs[i][1])
+                _power = 150 * self.scale * (inputs[i][0] * 0.5 + 0.5 - inputs[i][1])
 
             car.ApplyForce(
                 car_r * ((b2.b2Transform((0, 0), b2.b2Rot((inputs[i][2] - inputs[i][3]) / 4))) * (0, _power)),
-                (car.position + (car_r * (0, 5/self.scale))),
+                (car.position + (car_r * (0, 5 / self.scale))),
                 True)
             self.go[i] |= self.is_finish(i)
             if self.go[i]:
@@ -317,7 +376,7 @@ class Game:
             car_pos = car.position
             car_r = car.transform.R
             car_ang = car.angularVelocity / 5
-            outputs[i] = [min(max(car.linearVelocity.length / (180*self.scale), 0), 1),
+            outputs[i] = [min(max(car.linearVelocity.length / (180 * self.scale), 0), 1),
                           min(max(car_ang, 0), 1),
                           min(max(-car_ang, 0), 1)]
 
@@ -363,12 +422,13 @@ class Game:
 
         dist_in = (b2.b2Vec2(fixtures_cache[min_fix].shape.vertices[0]) - b2.b2Vec2(min_point)).length
 
-        result_dist = (dist_start + dist_in + min_d) / (3200*self.scale)
+        result_dist = (dist_start + dist_in + min_d) / (3200 * self.scale)
         return result_dist
 
     def draw(self):
         self.screen.fill((0, 0, 0))
-        self.world.DrawDebugData()
+        # self.world.DrawDebugData()
+        self.draw_world()
         self.draw_interface()
         pygame.display.flip()
 
@@ -386,7 +446,6 @@ def main():
     old_old_time = time.perf_counter()
 
     while old_time - old_old_time < 60000:
-
         if time.perf_counter() - old_time > game.dt:
             old_time = time.perf_counter()
             if not all(game.go):
@@ -402,10 +461,7 @@ def main():
                 game.set(game.inputs)
 
             game.dispatch_messages()
-            game.screen.fill((0, 0, 0))
-            game.world.DrawDebugData()
-            game.draw_interface()
-            pygame.display.flip()
+            game.draw()
 
 
 if __name__ == "__main__":
