@@ -130,7 +130,9 @@ class Game:
         self.count = count
         self.cars = [None for _ in range(count)]
         self.time = [0] * count
+        self.ticks = 0
         self.go = [False] * count
+        self.paths = [[] for _ in range(count)]
 
         self.sensors = []
         self.main_line = None
@@ -220,11 +222,27 @@ class Game:
         self.draw_lamp((250, 30), 'Finished', (200, 200, 40), self.go[0])
         self.draw_lamp((250, 50), 'Touching', (200, 40, 40), any(i.contact.touching for i in self.cars[0].contacts))
 
+    def draw_paths(self):
+        for j in range(self.count - 1, 0, -1):
+            if self.go[j]:
+                if len(self.paths[0]) > 1:
+                    pygame.draw.lines(self.screen, (self.colors['dead_car'] / 2).bytes, 0, self.paths[j])
+
+        for j in range(self.count - 1, 0, -1):
+            if not self.go[j]:
+                if len(self.paths[0]) > 1:
+                    pygame.draw.lines(self.screen, (self.colors['car'] / 2).bytes, 0, self.paths[j])
+
+        if len(self.paths[0]) > 1:
+            pygame.draw.lines(self.screen, (self.colors['selected_car'] / 2).bytes, 0, self.paths[0])
+
     def draw_world(self):
         for b in self.walls:
             self.world.renderer.DrawBody(b, self.colors['wall'])
 
         self.world.renderer.DrawBody(self.main_line, self.colors['main_line'])
+
+        self.draw_paths()
 
         for j in range(self.count - 1, 0, -1):
             if self.go[j]:
@@ -238,7 +256,9 @@ class Game:
 
     def restart(self):
         self.time = [0] * self.count
+        self.ticks = 0
         self.go = [False] * self.count
+        self.paths = [[] for _ in range(self.count)]
         self.inputs = [[0] * 4 for _ in range(self.count)]
         self.outputs = [[0] * 10 for _ in range(self.count)]
         self.world = b2.b2World((0, 0), True)
@@ -433,9 +453,15 @@ class Game:
         pygame.display.flip()
 
     def tick(self):
+        self.ticks += 1
         self.time = list(map((lambda x, y: x + (not y) * self.dt), self.time, self.go))
         self.world.Step(self.dt, 10, 10)
         self.world.ClearForces()
+        if self.ticks % 10 == 0:
+            for i in range(self.count):
+                if self.go[i]:
+                    continue
+                self.paths[i].append(self.world.renderer.to_screen((self.cars[i].position.x, self.cars[i].position.y)))
 
 
 def main():
@@ -449,11 +475,8 @@ def main():
         if time.perf_counter() - old_time > game.dt:
             old_time = time.perf_counter()
             if not all(game.go):
-                game.time = list(map((lambda x, y: x + (not y) * game.dt), game.time, game.go))
-                game.world.Step(game.dt, 10, 10)
+                game.tick()
                 game.outputs = game.get()
-                game.world.ClearForces()
-
                 old_inputs = game.inputs[0]
                 game.inputs = game.get_inputs()
                 game.inputs[0] = list(map((lambda x, y: min(max(x + (y - 0.5) * 6 * game.dt, 0), 1)), old_inputs,
