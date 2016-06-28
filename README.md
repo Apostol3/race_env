@@ -1,6 +1,8 @@
-# race environment for nlab
+# Race environment for nlab
 
-require pynlab, Box2D, pygame
+Require: [pynlab](https://github.com/Apostol3/pynlab),
+[Box2D](https://github.com/pybox2d/pybox2d),
+[pygame](http://www.pygame.org/download.shtml)
 
 ````
 usage: python main.py [-h] [-p name] [-c n] [file]
