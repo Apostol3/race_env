@@ -27,3 +27,6 @@ positional arguments:
 optional arguments:
   -h, --help  show this help message and exit
 ````
+
+###Screenshot of custom map:
+![screenshot](./screenshot.png)
