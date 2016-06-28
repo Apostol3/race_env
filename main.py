@@ -4,6 +4,7 @@ import time
 import pynlab
 
 import race_env
+from map import Map
 
 __author__ = 'apostol3'
 
@@ -16,7 +17,9 @@ def above_zero(string):
     return value
 
 
-parser = argparse.ArgumentParser(description="race enviroment for nlab")
+parser = argparse.ArgumentParser(description="race environment for nlab")
+parser.add_argument("file", metavar="file", type=str, help="map file (default: %(default)s)", nargs='?',
+                    default="default.json")
 parser.add_argument("-p", "--pipe", help="pipe name (default: %(default)s)",
                     metavar="name", type=str, dest="pipe_name", default="nlab")
 parser.add_argument("-c", "--count", help="number of players (default: %(default)s)",
@@ -34,7 +37,8 @@ esi.mode = pynlab.SendModes.specified
 
 last_time = time.perf_counter()
 lab = pynlab.NLab(pipe_str.format(pipe_name))
-game = race_env.Game(esi.count)
+map_ = Map.open_from_file(args.file)
+game = race_env.Game(esi.count, map_)
 game.restart()
 
 lab.connect()
@@ -66,8 +70,7 @@ while lab.is_ok != pynlab.VerificationHeader.stop:
     eri = pynlab.ERestartInfo()
     eri.result = []
     for i in range(esi.count):
-        dist = game.get_min_dist(i)
-        eri.result.append(dist * 1000 + game.is_really_finish(i) * (12000 - game.time[i] * 100))
+        eri.result.append(game.get_fitness(i))
     lab.restart(eri)
     game.restart()
 
