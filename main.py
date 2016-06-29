@@ -24,8 +24,11 @@ parser.add_argument("-p", "--pipe", help="pipe name (default: %(default)s)",
                     metavar="name", type=str, dest="pipe_name", default="nlab")
 parser.add_argument("-c", "--count", help="number of players (default: %(default)s)",
                     metavar="n", type=above_zero, dest="count", default=25)
+parser.add_argument("--no-gui", help="do not show gui", action="store_false",
+                    dest="gui")
 args = parser.parse_args()
 
+print("initializing... ", end="", flush=True)
 pipe_str = "\\\\.\\pipe\\{}"
 pipe_name = args.pipe_name
 
@@ -38,14 +41,20 @@ esi.mode = pynlab.SendModes.specified
 last_time = time.perf_counter()
 lab = pynlab.NLab(pipe_str.format(pipe_name))
 map_ = Map.open_from_file(args.file)
-game = race_env.Game(esi.count, map_)
+game = race_env.Game(esi.count, map_, args.gui)
 game.restart()
+print("complete")
 
+print("connenting to nlab at pipe \"{}\"... ".format(pipe_str.format(pipe_name)), end="", flush=True)
 lab.connect()
+print("connected")
 
+print("waiting for start information from nlab... ", end="", flush=True)
 lab.set_start_info(esi)
 lab.get_start_info()
+print("ok")
 
+print("working")
 while lab.is_ok != pynlab.VerificationHeader.stop:
     while not all(game.go):
         esdi = pynlab.ESendInfo()
@@ -56,6 +65,7 @@ while lab.is_ok != pynlab.VerificationHeader.stop:
 
         get = lab.get()
         if lab.is_ok == pynlab.VerificationHeader.stop:
+            print("get stop header from nlab. stopping")
             exit()
         game.inputs = get.data
         game.set(game.inputs)
@@ -76,4 +86,5 @@ while lab.is_ok != pynlab.VerificationHeader.stop:
 
     lab.get()
     if lab.is_ok == pynlab.VerificationHeader.stop:
+        print("get stop header from nlab. stopping")
         exit()

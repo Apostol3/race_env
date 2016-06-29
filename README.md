@@ -5,7 +5,7 @@ Require: [pynlab](https://github.com/Apostol3/pynlab),
 [pygame](http://www.pygame.org/download.shtml)
 
 ````
-usage: python main.py [-h] [-p name] [-c n] [file]
+usage: python main.py [-h] [-p name] [-c n] [--no-gui] [file]
 
 positional arguments:
   file                  map file (default: default.json)
@@ -14,6 +14,7 @@ optional arguments:
   -h, --help            show this help message and exit
   -p name, --pipe name  pipe name (default: nlab)
   -c n, --count n       number of players (default: 25)
+  --no-gui              do not show gui
 
 ````
 

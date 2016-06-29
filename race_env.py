@@ -121,14 +121,13 @@ class RayCastClosestCallback(b2.b2RayCastCallback):
 
 
 class Game:
-    def __init__(self, count, map_):
-        pygame.init()
+    def __init__(self, count, map_, gui):
+        self.gui = gui
+
         self.map = map_
         self.scale = 1 / 10
         self.size = self.width, self.height = int(self.map.size[0] / self.scale), int(
             self.map.size[1] / self.scale + 100)
-        self.screen = pygame.display.set_mode(self.size)
-        self.font = pygame.font.SysFont('Tahoma', 12, False, False)
 
         self.inputs = [[0] * 4 for _ in range(count)]
         self.outputs = [[0] * 10 for _ in range(count)]
@@ -152,6 +151,13 @@ class Game:
 
         self.w = self.l = self.r = self.b = self.t = 0
         self.dt = 1 / 60
+
+        if not self.gui:
+            return
+
+        pygame.init()
+        self.screen = pygame.display.set_mode(self.size)
+        self.font = pygame.font.SysFont('Tahoma', 12, False, False)
 
         self.colors = {'car': (174, 130, 120), 'dead_car': (98, 54, 50),
                        'selected_car': (220, 200, 165), 'wall': (173, 255, 115), 'main_line': (13, 53, 72),
@@ -281,17 +287,6 @@ class Game:
         self.outputs = [[0] * 10 for _ in range(self.count)]
         self.world = b2.b2World((0, 0), True)
 
-        self.world.renderer = PygameDraw(self.width, self.height, surface=self.screen)
-        self.world.renderer.flags = dict(
-            drawShapes=True,
-            drawJoints=False,
-            drawAABBs=False,
-            drawPairs=False,
-            drawCOMs=True,
-            convertVertices=isinstance(self.world.renderer, b2.b2DrawExtended)
-        )
-        self.world.renderer.zoom = 1 / self.scale
-
         self.w = w = 60 * self.scale
         self.r = r = self.map.size[0]
         self.l = l = 0
@@ -333,7 +328,24 @@ class Game:
         angle = math.pi / 4
         self.sensors = [(math.sin(i * angle / n) * rad, math.cos(i * angle / n) * rad) for i in range(-n, n + 1)]
 
+        if not self.gui:
+            return
+
+        self.world.renderer = PygameDraw(self.width, self.height, surface=self.screen)
+        self.world.renderer.flags = dict(
+            drawShapes=True,
+            drawJoints=False,
+            drawAABBs=False,
+            drawPairs=False,
+            drawCOMs=True,
+            convertVertices=isinstance(self.world.renderer, b2.b2DrawExtended)
+        )
+        self.world.renderer.zoom = 1 / self.scale
+
     def dispatch_messages(self):
+        if not self.gui:
+            return
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 sys.exit()
@@ -435,6 +447,9 @@ class Game:
         return result_dist
 
     def draw(self):
+        if not self.gui:
+            return
+
         self.screen.fill((0, 0, 0))
         # self.world.DrawDebugData()
         self.draw_world()
@@ -446,6 +461,10 @@ class Game:
         self.time = list(map((lambda x, y: x + (not y) * self.dt), self.time, self.go))
         self.world.Step(self.dt, 10, 10)
         self.world.ClearForces()
+
+        if not self.gui:
+            return
+
         if self.ticks % 10 == 0:
             for i in range(self.count):
                 if self.go[i]:
@@ -464,7 +483,7 @@ def main():
 
     map_ = Map.open_from_file(args.file)
 
-    game = Game(2, map_)
+    game = Game(2, map_, True)
     game.restart()
 
     old_time = time.perf_counter()
