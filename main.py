@@ -45,7 +45,7 @@ game = race_env.Game(esi.count, map_, args.gui)
 game.restart()
 print("complete")
 
-print("connenting to nlab at pipe \"{}\"... ".format(pipe_str.format(pipe_name)), end="", flush=True)
+print("connecting to nlab at pipe \"{}\"... ".format(pipe_str.format(pipe_name)), end="", flush=True)
 lab.connect()
 print("connected")
 
