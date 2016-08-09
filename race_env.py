@@ -102,7 +102,7 @@ class PygameDraw(b2.b2DrawExtended):
         tr = body.transform
         for fixture in body:
             self.DrawShape(fixture.shape, tr, color)
-        self.DrawTransform(tr)
+        #self.DrawTransform(tr)
 
 
 class RayCastClosestCallback(b2.b2RayCastCallback):
@@ -125,15 +125,15 @@ class Game:
         self.gui = gui
 
         self.map = map_
-        self.scale = 1 / 10
-        self.size = self.width, self.height = int(self.map.size[0] / self.scale), int(
-            self.map.size[1] / self.scale + 100)
+        # self.size = self.width, self.height = int(self.map.size[0] / self.scale), int(
+        #     self.map.size[1] / self.scale + 100)
 
         self.inputs = [[0] * 4 for _ in range(count)]
         self.outputs = [[0] * 10 for _ in range(count)]
 
         self.count = count
         self.cars = [None for _ in range(count)]
+        self.cur_car = 0
 
         self.time = [0] * count
         self.ticks = 0
@@ -149,19 +149,22 @@ class Game:
 
         self.world = None
 
-        self.w = self.l = self.r = self.b = self.t = 0
+        self.l = self.r = self.b = self.t = 0
         self.dt = 1 / 60
+        self.car_power = 8500
 
         if not self.gui:
             return
 
         pygame.init()
-        self.screen = pygame.display.set_mode(self.size)
+        self.max_zoom = 7
+        self.screen_size = (800, 600)
+        self.screen = pygame.display.set_mode(self.screen_size, pygame.RESIZABLE)
         self.font = pygame.font.SysFont('Tahoma', 12, False, False)
 
         self.colors = {'car': (174, 130, 120), 'dead_car': (98, 54, 50),
                        'selected_car': (220, 200, 165), 'wall': (173, 255, 115), 'main_line': (13, 53, 72),
-                       'finish': (122, 132, 163)}
+                       'finish': (122, 132, 163), 'sliding_tire': (255, 70, 70)}
 
         for k in self.colors:
             self.colors[k] = b2.b2Color(self.colors[k][0] / 255, self.colors[k][1] / 255, self.colors[k][2] / 255)
@@ -169,32 +172,214 @@ class Game:
     def mf(self, v):
         return v[0], self.map.size[1] - v[1]
 
-    def create_car(self, x, y):
+    def create_tire(self, car,
+                    max_drive_force,
+                    max_brake_force,
+                    static_friction, sliding_friction):
         fix_def = b2.b2FixtureDef()
-        fix_def.friction = 0.3
-        fix_def.restitution = 0.1
         fix_def.filter.categoryBits = 2
         fix_def.filter.maskBits = 1
 
-        fix_def.shape = b2.b2PolygonShape(box=(5 * self.scale, 10 * self.scale))
+        fix_def.shape = b2.b2PolygonShape(box=(0.245 / 2, 0.555 / 2))
+
+        body_def = b2.b2BodyDef()
+        body_def.type = b2.b2_dynamicBody
+
+        body = self.world.CreateBody(body_def)
+        body.car = car
+        body.mass = 50
+        body.inertia = 50
+        body.sliding = False
+        body.CreateFixture(fix_def)
+        body.current_traction = 1
+        body.max_drive_force = max_drive_force
+        body.max_brake_force = max_brake_force
+        body.static_friction = static_friction
+        body.sliding_friction = sliding_friction
+
+        def get_lateral_velocity():
+            current_right_normal = body.GetWorldVector(b2.b2Vec2(1, 0))
+            return b2.b2Dot(current_right_normal, body.linearVelocity) * current_right_normal
+
+        def get_forward_velocity():
+            current_forward_normal = body.GetWorldVector(b2.b2Vec2(0, 1))
+            return b2.b2Dot(current_forward_normal, body.linearVelocity) * current_forward_normal
+
+        def get_brake_orientation():
+            current_forward_normal = body.GetWorldVector(b2.b2Vec2(0, 1))
+            if b2.b2Dot(current_forward_normal, body.linearVelocity) > 0:
+                return -current_forward_normal
+            else:
+                return current_forward_normal
+
+        def update_drive(normal_reaction, acc, stop):
+            current_forward_normal = body.GetWorldVector(b2.b2Vec2(0, 1))
+            lateral_force = car.mass / 4 * -body.get_lateral_velocity() / self.dt
+            drive_force = body.max_drive_force * (acc + 0.05) * current_forward_normal
+
+            brake_force = b2.b2Vec2(0, 0)
+            if get_forward_velocity().length > 2/3.6 and stop > 0:
+                # braking
+                brake_force = body.max_brake_force * stop * body.get_brake_orientation()
+                if (drive_force + lateral_force).length > normal_reaction * body.static_friction:
+                    # ABS unusable
+                    # print("ABS unusable!")
+                    pass
+                elif (drive_force + lateral_force + brake_force).length > normal_reaction * body.static_friction:
+                    # try ABS
+                    abs_quality = 0.98
+                    a = drive_force + lateral_force
+                    b = brake_force
+                    n = normal_reaction * body.static_friction * abs_quality
+                    # solving ||a + x*b|| == n for x
+                    xx = a.x * b.x
+                    yy = a.y * b.y
+                    d = 2 * (xx + yy) ** 2 - 4 * b.length ** 2 * (a.length ** 2 - n ** 2)
+                    if d > 0:
+                        abs_factor = min(max((math.sqrt(d) - 2 * (xx + yy)) /
+                                             (2 * b.length ** 2), 0), 1)
+                        brake_force *= abs_factor
+                        # print("ABS! {}".format(abs_factor))
+
+            res_force = lateral_force + drive_force + brake_force
+            body.sliding = res_force.length > normal_reaction * body.static_friction
+            if body.sliding:
+                res_force *= normal_reaction * body.sliding_friction / res_force.length
+                # print('Sliding! {}'.format(res_force))
+
+            body.car.ApplyForce(res_force, body.worldCenter, True)
+
+        body.get_forward_velocity = get_forward_velocity
+        body.get_lateral_velocity = get_lateral_velocity
+        body.get_brake_orientation = get_brake_orientation
+        body.update_drive = update_drive
+
+        return body
+
+    def create_car(self, x, y):
+        fix_def = b2.b2FixtureDef()
+        # fix_def.friction = 0.3
+        # fix_def.restitution = 0.1
+        fix_def.filter.categoryBits = 2
+        fix_def.filter.maskBits = 1
+
+        fix_def.shape = b2.b2PolygonShape(box=(1.8 / 2, 4.6 / 2))
+        # fix_def.shape = b2.b2PolygonShape(box=(0.5, 1))
 
         body_def = b2.b2BodyDef()
         body_def.type = b2.b2_dynamicBody
         body_def.position = (x, y)
-        body_def.linearDamping = 0.2
-        body_def.angularDamping = 15 / math.sqrt(self.dt * 60)
+        body_def.linearDamping = 0.05
+        body_def.angularDamping = 3
 
         body = self.world.CreateBody(body_def)
         body.CreateFixture(fix_def)
-        body.inertia = 3
-        body.mass = 3
+        body.inertia = 600
+        body.mass = 600
         body.sleepingAllowed = False
-        body.angle = self.map.cars[0][2]
 
+        body.max_forward_speed = 250 / 3.6
+        body.max_backward_speed = -40 / 3.6
+
+        back_tire_max_drive_force = 4500
+        front_tire_max_drive_force = 0
+        max_brake_force = 15000
+        front_tire_static_friction = 0.95*3#0.95 * 3
+        front_tire_sliding_friction = 0.8*3#0.8 * 3
+        back_tire_static_friction = 0.8*3#0.95 * 3
+        back_tire_sliding_friction = 0.7*3#0.8 * 3
+        body.spoiler_max_downforce = body.mass * 1 * 9.8
+        body.sploiler_min_speed = 40 / 3.6
+        body.sploiler_max_speed = 250 / 3.6
+
+        body.rftire = self.create_tire(body, front_tire_max_drive_force, max_brake_force,
+                                       front_tire_static_friction,
+                                       front_tire_sliding_friction)
+        body.lftire = self.create_tire(body, front_tire_max_drive_force, max_brake_force,
+                                       front_tire_static_friction,
+                                       front_tire_sliding_friction)
+
+        body.lbtire = self.create_tire(body, back_tire_max_drive_force, max_brake_force,
+                                       back_tire_static_friction,
+                                       back_tire_sliding_friction)
+        body.rbtire = self.create_tire(body, back_tire_max_drive_force, max_brake_force,
+                                       back_tire_static_friction,
+                                       back_tire_sliding_friction)
+
+        jointDef = b2.b2RevoluteJointDef()
+        jointDef.bodyA = body
+        jointDef.enableLimit = True
+        jointDef.lowerAngle = 0
+        jointDef.upperAngle = 0
+        jointDef.localAnchorB.SetZero()
+
+        jointDef.bodyB = body.lbtire
+        body.lbtire.position = (x - 1.8 / 2, y - 0.7 * 4.6 / 2)
+        jointDef.localAnchorA.Set(-1.8 / 2, -0.7 * 4.6 / 2)
+        self.world.CreateJoint(jointDef)
+
+        jointDef.bodyB = body.rbtire
+        body.rbtire.position = (x + 1.8 / 2, y - 0.7 * 4.6 / 2)
+        jointDef.localAnchorA.Set(1.8 / 2, -0.7 * 4.6 / 2)
+        self.world.CreateJoint(jointDef)
+
+        jointDef.bodyB = body.lftire
+        body.lftire.position = (x - 1.8 / 2, y + 0.7 * 4.6 / 2)
+        jointDef.localAnchorA.Set(-1.8 / 2, 0.7 * 4.6 / 2)
+        body.lfJoint = self.world.CreateJoint(jointDef)
+
+        jointDef.bodyB = body.rftire
+        body.rftire.position = (x + 1.8 / 2, y + 0.7 * 4.6 / 2)
+        jointDef.localAnchorA.Set(1.8 / 2, 0.7 * 4.6 / 2)
+        body.rfJoint = self.world.CreateJoint(jointDef)
+
+        body.angle = self.map.cars[0][2]
+        body.lbtire.angle = self.map.cars[0][2]
+        body.lftire.angle = self.map.cars[0][2]
+        body.rbtire.angle = self.map.cars[0][2]
+        body.rftire.angle = self.map.cars[0][2]
+
+        body.lock_angle = math.radians(35)
+        body.turn_speed_per_sec = math.radians(160)
+        body.turn_per_time_step = body.turn_speed_per_sec * self.dt
+
+        body.last_speed = b2.b2Vec2(0, 0)
+        body.dv = b2.b2Vec2(0, 0)
+        body.normal_reaction = 0
+
+        def update(acc, stop, left, right):
+
+            cur_speed = b2.b2Dot(body.GetWorldVector(b2.b2Vec2(0, 1)), body.linearVelocity)
+            cur_spoiler_coeff = max(
+                min((cur_speed - body.sploiler_min_speed) / (body.sploiler_max_speed - body.sploiler_min_speed), 1), 0)
+            if cur_speed > 2 / 3 * body.max_forward_speed:
+                # power limitation
+                acc *= (body.max_forward_speed - cur_speed) / ((1 - 2 / 3) * body.max_forward_speed) / 2 + 0.5
+
+            if cur_speed > body.max_forward_speed:
+                # speed limitation
+                acc = 0
+
+            normal_reaction = body.mass * 0.5 * 0.5 * 9.8 + body.spoiler_max_downforce * cur_spoiler_coeff * 0.25
+            body.normal_reaction = normal_reaction * 4
+            body.lftire.update_drive(normal_reaction, acc, stop)
+            body.rftire.update_drive(normal_reaction, acc, stop)
+            body.lbtire.update_drive(normal_reaction, acc, stop)
+            body.rbtire.update_drive(normal_reaction, acc, stop)
+
+            desired_angle = body.lock_angle * (left - right)
+
+            angle_now = body.rfJoint.angle
+            angle_to_turn = min(max(desired_angle - angle_now, -body.turn_per_time_step), body.turn_per_time_step)
+            new_angle = angle_now + angle_to_turn
+            body.lfJoint.SetLimits(new_angle, new_angle)
+            body.rfJoint.SetLimits(new_angle, new_angle)
+
+        body.update = update
         return body
 
     def vf(self, vec):
-        return vec.x, self.height - vec.y
+        return vec.x, self.screen_size[1] - vec.y
 
     def draw_lamp(self, position, text, color, val):
         _text = self.font.render(text, True, (255, 255, 255))
@@ -212,6 +397,8 @@ class Game:
                              ((rect[0][0] + 1, rect[0][1] + rect[1][1] - 2), (rect[1][0] - 2, -val * (rect[1][1] - 4))))
 
     def draw_interface(self):
+        car = self.cur_car
+
         # You can uncomment this to draw sensors:
         # for j in range(self.count):
         #     if self.go[j]:
@@ -222,39 +409,66 @@ class Game:
         #                              b2.b2Mul(self.cars[j].transform, (b2.b2Vec2(self.sensors[i]) * (
         #                                  1 - self.outputs[j][i + 3])))))
 
-        if not self.go[0]:
-            self.draw_bar(((50, 10), (10, 50)), (40, 40, 235), self.inputs[0][0])
-            self.draw_bar(((65, 10), (10, 50)), (235, 40, 40), self.inputs[0][1])
-            self.draw_bar(((80, 10), (10, 50)), (40, 235, 40), self.inputs[0][2])
-            self.draw_bar(((95, 10), (10, 50)), (40, 235, 40), self.inputs[0][3])
+        if not self.go[car]:
+            self.draw_bar(((50, 10), (10, 50)), (40, 40, 235), self.inputs[car][0])
+            self.draw_bar(((65, 10), (10, 50)), (235, 40, 40), self.inputs[car][1])
+            self.draw_bar(((80, 10), (10, 50)), (40, 235, 40), self.inputs[car][2])
+            self.draw_bar(((95, 10), (10, 50)), (40, 235, 40), self.inputs[car][3])
 
-            self.draw_bar(((350, 10), (10, 50)), (220, 40, 220), self.outputs[0][0])
-            self.draw_bar(((365, 10), (10, 50)), (220, 220, 40), self.outputs[0][1])
-            self.draw_bar(((380, 10), (10, 50)), (220, 220, 40), self.outputs[0][2])
+            self.draw_bar(((350, 10), (10, 50)), (220, 40, 220), self.outputs[car][0])
+            self.draw_bar(((365, 10), (10, 50)), (220, 220, 40), self.outputs[car][1])
+            self.draw_bar(((380, 10), (10, 50)), (220, 220, 40), self.outputs[car][2])
 
-            for i in range(3, len(self.outputs[0])):
-                self.draw_bar(((350 + i * 15, 10), (10, 50)), (220, 220, 220), self.outputs[0][i])
+            for i in range(3, len(self.outputs[car])):
+                self.draw_bar(((350 + i * 15, 10), (10, 50)), (220, 220, 220), self.outputs[car][i])
 
-        self.screen.blit(self.font.render("Time: {:.2f}".format(self.time[0]), True, (255, 255, 255)), (250, 10))
+        self.screen.blit(self.font.render("Time: {:.2f}".format(self.time[car]), True, (255, 255, 255)),
+                         (250, 10))
+        self.screen.blit(
+            self.font.render("Speed: {:.2f} km/h".format(self.cars[car].linearVelocity.length * 3.6), True,
+                             (255, 255, 255)), (550, 10))
 
-        self.draw_bar(((125, 10), (10, 50)), (40, 235, 40), self.get_min_dist(0))
+        self.draw_bar(((125, 10), (10, 50)), (40, 235, 40), self.get_min_dist(car))
 
-        self.draw_lamp((250, 30), 'Finished', (200, 200, 40), self.go[0])
-        self.draw_lamp((250, 50), 'Touching', (200, 40, 40), any(i.contact.touching for i in self.cars[0].contacts))
+        self.draw_lamp((250, 30), 'Finished', (200, 200, 40), self.go[car])
+        self.draw_lamp((250, 50), 'Touching', (200, 40, 40),
+                       any(i.contact.touching for i in self.cars[car].contacts))
+
+        car = self.cars[car]
+        current_right_normal = car.GetWorldVector(b2.b2Vec2(1, 0))
+        car_lat = (b2.b2Dot(current_right_normal, car.dv) / current_right_normal.length) / (9.8 * self.dt)
+        current_forward_normal = car.GetWorldVector(b2.b2Vec2(0, 1))
+        car_for = (b2.b2Dot(current_forward_normal, car.dv) / current_forward_normal.length) / (9.8 * self.dt)
+
+        # overloads
+        self.draw_bar(((730, 10), (10, 50)), (40, 235, 40), max(min(car_lat / 5, 1), 0))
+        self.draw_bar(((745, 10), (10, 50)), (40, 235, 40), max(min(-car_lat / 5, 1), 0))
+        self.draw_bar(((700, 10), (10, 50)), (40, 40, 235), max(min(-car_for / 5, 1), 0))
+        self.draw_bar(((715, 10), (10, 50)), (235, 40, 40), max(min(car_for / 5, 1), 0))
+
+        self.draw_bar(((765, 10), (10, 50)), (235, 40, 40), max(min(car.normal_reaction / car.mass / 9.8 / 5, 1), 0))
 
     def draw_paths(self):
-        for j in range(self.count - 1, 0, -1):
-            if self.go[j]:
-                if len(self.paths[0]) > 1:
-                    pygame.draw.lines(self.screen, (self.colors['dead_car'] / 2).bytes, 0, self.paths[j])
+        np = [[self.world.renderer.to_screen(j) for j in i] for i in self.paths]
 
-        for j in range(self.count - 1, 0, -1):
-            if not self.go[j]:
-                if len(self.paths[0]) > 1:
-                    pygame.draw.lines(self.screen, (self.colors['car'] / 2).bytes, 0, self.paths[j])
+        for j in range(self.count - 1, -1, -1):
+            if self.go[j] and not self.cur_car == j:
+                if len(np[j]) > 1:
+                    pygame.draw.lines(self.screen, (self.colors['dead_car'] / 2).bytes, 0, np[j])
 
-        if len(self.paths[0]) > 1:
-            pygame.draw.lines(self.screen, (self.colors['selected_car'] / 2).bytes, 0, self.paths[0])
+        for j in range(self.count - 1, -1, -1):
+            if not self.go[j] and not self.cur_car == j:
+                if len(np[j]) > 1:
+                    pygame.draw.lines(self.screen, (self.colors['car'] / 2).bytes, 0, np[j])
+
+        if len(np[self.cur_car]) > 1:
+            pygame.draw.lines(self.screen, (self.colors['selected_car'] / 2).bytes, 0, np[self.cur_car])
+
+    def draw_tire(self, tire, color):
+        if tire.sliding:
+            self.world.renderer.DrawBody(tire, (color + self.colors['sliding_tire']) / 2)
+        else:
+            self.world.renderer.DrawBody(tire, color)
 
     def draw_world(self):
         fdraw = self.world.renderer.to_screen(self.finish[0]), self.world.renderer.to_screen(self.finish[1])
@@ -268,15 +482,30 @@ class Game:
 
         self.draw_paths()
 
-        for j in range(self.count - 1, 0, -1):
-            if self.go[j]:
-                self.world.renderer.DrawBody(self.cars[j], self.colors['dead_car'])
+        for j in range(self.count - 1, -1, -1):
+            if self.go[j] and not self.cur_car == j:
+                color = self.colors['dead_car']
+                self.world.renderer.DrawBody(self.cars[j], color)
+                self.draw_tire(self.cars[j].lbtire, color)
+                self.draw_tire(self.cars[j].lftire, color)
+                self.draw_tire(self.cars[j].rbtire, color)
+                self.draw_tire(self.cars[j].rftire, color)
 
-        for j in range(self.count - 1, 0, -1):
-            if not self.go[j]:
-                self.world.renderer.DrawBody(self.cars[j], self.colors['car'])
+        for j in range(self.count - 1, -1, -1):
+            if not self.go[j] and not self.cur_car == j:
+                color = self.colors['car']
+                self.world.renderer.DrawBody(self.cars[j], color)
+                self.draw_tire(self.cars[j].lbtire, color)
+                self.draw_tire(self.cars[j].lftire, color)
+                self.draw_tire(self.cars[j].rbtire, color)
+                self.draw_tire(self.cars[j].rftire, color)
 
-        self.world.renderer.DrawBody(self.cars[0], self.colors['selected_car'])
+        color = self.colors['selected_car']
+        self.world.renderer.DrawBody(self.cars[self.cur_car], color)
+        self.draw_tire(self.cars[self.cur_car].lbtire, color)
+        self.draw_tire(self.cars[self.cur_car].lftire, color)
+        self.draw_tire(self.cars[self.cur_car].rbtire, color)
+        self.draw_tire(self.cars[self.cur_car].rftire, color)
 
     def restart(self):
         self.time = [0] * self.count
@@ -287,7 +516,6 @@ class Game:
         self.outputs = [[0] * 10 for _ in range(self.count)]
         self.world = b2.b2World((0, 0), True)
 
-        self.w = w = 60 * self.scale
         self.r = r = self.map.size[0]
         self.l = l = 0
         self.t = t = self.map.size[1]
@@ -319,19 +547,20 @@ class Game:
             self.all_dist += (b2.b2Vec2(sh.vertices[1]) - b2.b2Vec2(sh.vertices[0])).length
 
         self.cars = [self.create_car(*self.mf(self.map.cars[0][:2])) for _ in range(self.count)]
+        self.cur_car = 0
         fin = [self.mf(self.map.finish[0]), self.mf(self.map.finish[1])]
         self.finish = (min(fin[0][0], fin[1][0]), min(fin[0][1], fin[1][1])), \
                       (max(fin[0][0], fin[1][0]), max(fin[0][1], fin[1][1]))
 
         n = 3
-        rad = 150 * self.scale
+        rad = 30
         angle = math.pi / 4
         self.sensors = [(math.sin(i * angle / n) * rad, math.cos(i * angle / n) * rad) for i in range(-n, n + 1)]
 
         if not self.gui:
             return
 
-        self.world.renderer = PygameDraw(self.width, self.height, surface=self.screen)
+        self.world.renderer = PygameDraw(self.screen_size[0], self.screen_size[1], surface=self.screen)
         self.world.renderer.flags = dict(
             drawShapes=True,
             drawJoints=False,
@@ -340,7 +569,6 @@ class Game:
             drawCOMs=True,
             convertVertices=isinstance(self.world.renderer, b2.b2DrawExtended)
         )
-        self.world.renderer.zoom = 1 / self.scale
 
     def dispatch_messages(self):
         if not self.gui:
@@ -354,6 +582,23 @@ class Game:
                     self.restart()
                 elif event.key == pygame.K_ESCAPE:
                     sys.exit()
+                elif event.key == pygame.K_KP_PLUS:
+                    self.max_zoom *= 1.1
+                elif event.key == pygame.K_KP_MINUS:
+                    self.max_zoom /= 1.1
+            if event.type == pygame.VIDEORESIZE:
+                self.screen_size = event.size
+                self.screen = pygame.display.set_mode(self.screen_size, pygame.RESIZABLE)
+
+                self.world.renderer = PygameDraw(self.screen_size[0], self.screen_size[1], surface=self.screen)
+                self.world.renderer.flags = dict(
+                    drawShapes=True,
+                    drawJoints=False,
+                    drawAABBs=False,
+                    drawPairs=False,
+                    drawCOMs=True,
+                    convertVertices=isinstance(self.world.renderer, b2.b2DrawExtended)
+                )
 
     def get_inputs(self):
         keys = pygame.key.get_pressed()
@@ -369,24 +614,8 @@ class Game:
             if self.go[i]:
                 continue
             car = self.cars[i]
-            car_vel = car.linearVelocity.length
-            car_r = car.transform.R
-            car_r1 = car_r.col1
             inputs[i] = [max(0, min(1, i)) for i in inputs[i]]
-            car.linearDamping = 0.2 + 3 * inputs[i][1]
-            if car_vel != 0:
-                car.linearVelocity -= car_r1 * car_vel * (
-                    car.linearVelocity.dot(car_r1) / car_vel) * 6 * self.dt
-
-            if car_vel > 9 * self.scale:
-                _power = 150 * self.scale * (inputs[i][0] * 0.5 + 0.5)
-            else:
-                _power = 150 * self.scale * (inputs[i][0] * 0.5 + 0.5 - inputs[i][1])
-
-            car.ApplyForce(
-                car_r * ((b2.b2Transform((0, 0), b2.b2Rot((inputs[i][2] - inputs[i][3]) / 4))) * (0, _power)),
-                (car.position + (car_r * (0, 5 / self.scale))),
-                True)
+            car.update(*inputs[i])
             self.go[i] |= self.is_finish(i)
             if self.go[i]:
                 car.linearVelocity = b2.b2Vec2(0, 0)
@@ -400,10 +629,16 @@ class Game:
             car = self.cars[i]
             car_pos = car.position
             car_r = car.transform.R
-            car_ang = car.angularVelocity / 5
-            outputs[i] = [min(max(car.linearVelocity.length / (180 * self.scale), 0), 1),
-                          min(max(car_ang, 0), 1),
-                          min(max(-car_ang, 0), 1)]
+            current_right_normal = car.GetWorldVector(b2.b2Vec2(1, 0))
+            car_lat = (b2.b2Dot(current_right_normal,
+                                (car.last_speed - car.linearVelocity)) / current_right_normal.length) / (9.8 * self.dt)
+            car.dv = b2.b2Vec2(car.last_speed - car.linearVelocity)
+
+            car.last_speed = b2.b2Vec2(car.linearVelocity)
+
+            outputs[i] = [min(max(car.linearVelocity.length / (330 / 3.6), 0), 1),
+                          min(max(car_lat / 3, 0), 1),
+                          min(max(-car_lat / 3, 0), 1)]
 
             for j in self.sensors:
                 callback.fraction = 1
@@ -449,6 +684,44 @@ class Game:
     def draw(self):
         if not self.gui:
             return
+        # self.world.renderer.zoom = min(
+        #     self.screen_size[0] / self.map.size[0],
+        #     (self.screen_size[1] - 100) / self.map.size[1], self.max_zoom
+        # )
+        #
+        # self.world.renderer.offset = (
+        #     -(self.screen_size[0] / 2 - self.map.size[0] / 2 * self.world.renderer.zoom),
+        #     -((self.screen_size[1] - 100) / 2 - self.map.size[1] / 2 * self.world.renderer.zoom)
+        # )
+
+        self.world.renderer.zoom = self.max_zoom * 1
+        self.world.renderer.offset = (
+            -(self.screen_size[0] / 2 - self.cars[self.cur_car].position[0] * self.world.renderer.zoom),
+            -(self.screen_size[1] / 2 - self.cars[self.cur_car].position[1] * self.world.renderer.zoom)
+        )
+        # dx, dy = 0, 0
+        #
+        # if self.world.renderer.offset[0] > 0:
+        #     dx -= self.world.renderer.offset[0]
+        #
+        # if self.world.renderer.offset[1] > 0:
+        #     dy -= self.world.renderer.offset[1]
+        #
+        # if -self.world.renderer.offset[0] + self.map.size[0]*self.world.renderer.zoom - self.screen_size[0] > 0:
+        #     dx += -self.world.renderer.offset[0] + self.map.size[0]*self.world.renderer.zoom - self.screen_size[0]
+        #
+        # if -self.world.renderer.offset[1] + self.map.size[1] * self.world.renderer.zoom - self.screen_size[1] +100> 0:
+        #     dy += -self.world.renderer.offset[1] + self.map.size[1] * self.world.renderer.zoom - self.screen_size[1]+100
+        #
+        # self.world.renderer.offset = (
+        #     self.world.renderer.offset[0] + dx,
+        #     self.world.renderer.offset[1] + dy
+        # )
+
+        for i in range(self.count):
+            if not self.go[i]:
+                self.cur_car = i
+                break
 
         self.screen.fill((0, 0, 0))
         # self.world.DrawDebugData()
@@ -469,7 +742,7 @@ class Game:
             for i in range(self.count):
                 if self.go[i]:
                     continue
-                self.paths[i].append(self.world.renderer.to_screen((self.cars[i].position.x, self.cars[i].position.y)))
+                self.paths[i].append(b2.b2Vec2(self.cars[i].position.x, self.cars[i].position.y))
 
     def get_fitness(self, i):
         return self.get_min_dist(i) * 1000 + self.is_really_finish(i) * (self.max_time - self.time[i]) * 100
