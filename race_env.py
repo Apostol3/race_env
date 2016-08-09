@@ -102,7 +102,7 @@ class PygameDraw(b2.b2DrawExtended):
         tr = body.transform
         for fixture in body:
             self.DrawShape(fixture.shape, tr, color)
-        #self.DrawTransform(tr)
+            # self.DrawTransform(tr)
 
 
 class RayCastClosestCallback(b2.b2RayCastCallback):
@@ -172,210 +172,31 @@ class Game:
     def mf(self, v):
         return v[0], self.map.size[1] - v[1]
 
-    def create_tire(self, car,
-                    max_drive_force,
-                    max_brake_force,
-                    static_friction, sliding_friction):
-        fix_def = b2.b2FixtureDef()
-        fix_def.filter.categoryBits = 2
-        fix_def.filter.maskBits = 1
-
-        fix_def.shape = b2.b2PolygonShape(box=(0.245 / 2, 0.555 / 2))
-
-        body_def = b2.b2BodyDef()
-        body_def.type = b2.b2_dynamicBody
-
-        body = self.world.CreateBody(body_def)
-        body.car = car
-        body.mass = 50
-        body.inertia = 50
-        body.sliding = False
-        body.CreateFixture(fix_def)
-        body.current_traction = 1
-        body.max_drive_force = max_drive_force
-        body.max_brake_force = max_brake_force
-        body.static_friction = static_friction
-        body.sliding_friction = sliding_friction
-
-        def get_lateral_velocity():
-            current_right_normal = body.GetWorldVector(b2.b2Vec2(1, 0))
-            return b2.b2Dot(current_right_normal, body.linearVelocity) * current_right_normal
-
-        def get_forward_velocity():
-            current_forward_normal = body.GetWorldVector(b2.b2Vec2(0, 1))
-            return b2.b2Dot(current_forward_normal, body.linearVelocity) * current_forward_normal
-
-        def get_brake_orientation():
-            current_forward_normal = body.GetWorldVector(b2.b2Vec2(0, 1))
-            if b2.b2Dot(current_forward_normal, body.linearVelocity) > 0:
-                return -current_forward_normal
-            else:
-                return current_forward_normal
-
-        def update_drive(normal_reaction, acc, stop):
-            current_forward_normal = body.GetWorldVector(b2.b2Vec2(0, 1))
-            lateral_force = car.mass / 4 * -body.get_lateral_velocity() / self.dt
-            drive_force = body.max_drive_force * (acc + 0.05) * current_forward_normal
-
-            brake_force = b2.b2Vec2(0, 0)
-            if get_forward_velocity().length > 2/3.6 and stop > 0:
-                # braking
-                brake_force = body.max_brake_force * stop * body.get_brake_orientation()
-                if (drive_force + lateral_force).length > normal_reaction * body.static_friction:
-                    # ABS unusable
-                    # print("ABS unusable!")
-                    pass
-                elif (drive_force + lateral_force + brake_force).length > normal_reaction * body.static_friction:
-                    # try ABS
-                    abs_quality = 0.98
-                    a = drive_force + lateral_force
-                    b = brake_force
-                    n = normal_reaction * body.static_friction * abs_quality
-                    # solving ||a + x*b|| == n for x
-                    xx = a.x * b.x
-                    yy = a.y * b.y
-                    d = 2 * (xx + yy) ** 2 - 4 * b.length ** 2 * (a.length ** 2 - n ** 2)
-                    if d > 0:
-                        abs_factor = min(max((math.sqrt(d) - 2 * (xx + yy)) /
-                                             (2 * b.length ** 2), 0), 1)
-                        brake_force *= abs_factor
-                        # print("ABS! {}".format(abs_factor))
-
-            res_force = lateral_force + drive_force + brake_force
-            body.sliding = res_force.length > normal_reaction * body.static_friction
-            if body.sliding:
-                res_force *= normal_reaction * body.sliding_friction / res_force.length
-                # print('Sliding! {}'.format(res_force))
-
-            body.car.ApplyForce(res_force, body.worldCenter, True)
-
-        body.get_forward_velocity = get_forward_velocity
-        body.get_lateral_velocity = get_lateral_velocity
-        body.get_brake_orientation = get_brake_orientation
-        body.update_drive = update_drive
-
-        return body
-
     def create_car(self, x, y):
         fix_def = b2.b2FixtureDef()
-        # fix_def.friction = 0.3
-        # fix_def.restitution = 0.1
+        fix_def.friction = 0.3
+        fix_def.restitution = 0.1
         fix_def.filter.categoryBits = 2
         fix_def.filter.maskBits = 1
 
         fix_def.shape = b2.b2PolygonShape(box=(1.8 / 2, 4.6 / 2))
-        # fix_def.shape = b2.b2PolygonShape(box=(0.5, 1))
 
         body_def = b2.b2BodyDef()
         body_def.type = b2.b2_dynamicBody
         body_def.position = (x, y)
-        body_def.linearDamping = 0.05
-        body_def.angularDamping = 3
+        body_def.linearDamping = 0.2
+        body_def.angularDamping = 15 / math.sqrt(self.dt * 60)
 
         body = self.world.CreateBody(body_def)
         body.CreateFixture(fix_def)
-        body.inertia = 600
-        body.mass = 600
+        body.inertia = 3
+        body.mass = 3
         body.sleepingAllowed = False
-
-        body.max_forward_speed = 250 / 3.6
-        body.max_backward_speed = -40 / 3.6
-
-        back_tire_max_drive_force = 4500
-        front_tire_max_drive_force = 0
-        max_brake_force = 15000
-        front_tire_static_friction = 0.95*3#0.95 * 3
-        front_tire_sliding_friction = 0.8*3#0.8 * 3
-        back_tire_static_friction = 0.8*3#0.95 * 3
-        back_tire_sliding_friction = 0.7*3#0.8 * 3
-        body.spoiler_max_downforce = body.mass * 1 * 9.8
-        body.sploiler_min_speed = 40 / 3.6
-        body.sploiler_max_speed = 250 / 3.6
-
-        body.rftire = self.create_tire(body, front_tire_max_drive_force, max_brake_force,
-                                       front_tire_static_friction,
-                                       front_tire_sliding_friction)
-        body.lftire = self.create_tire(body, front_tire_max_drive_force, max_brake_force,
-                                       front_tire_static_friction,
-                                       front_tire_sliding_friction)
-
-        body.lbtire = self.create_tire(body, back_tire_max_drive_force, max_brake_force,
-                                       back_tire_static_friction,
-                                       back_tire_sliding_friction)
-        body.rbtire = self.create_tire(body, back_tire_max_drive_force, max_brake_force,
-                                       back_tire_static_friction,
-                                       back_tire_sliding_friction)
-
-        jointDef = b2.b2RevoluteJointDef()
-        jointDef.bodyA = body
-        jointDef.enableLimit = True
-        jointDef.lowerAngle = 0
-        jointDef.upperAngle = 0
-        jointDef.localAnchorB.SetZero()
-
-        jointDef.bodyB = body.lbtire
-        body.lbtire.position = (x - 1.8 / 2, y - 0.7 * 4.6 / 2)
-        jointDef.localAnchorA.Set(-1.8 / 2, -0.7 * 4.6 / 2)
-        self.world.CreateJoint(jointDef)
-
-        jointDef.bodyB = body.rbtire
-        body.rbtire.position = (x + 1.8 / 2, y - 0.7 * 4.6 / 2)
-        jointDef.localAnchorA.Set(1.8 / 2, -0.7 * 4.6 / 2)
-        self.world.CreateJoint(jointDef)
-
-        jointDef.bodyB = body.lftire
-        body.lftire.position = (x - 1.8 / 2, y + 0.7 * 4.6 / 2)
-        jointDef.localAnchorA.Set(-1.8 / 2, 0.7 * 4.6 / 2)
-        body.lfJoint = self.world.CreateJoint(jointDef)
-
-        jointDef.bodyB = body.rftire
-        body.rftire.position = (x + 1.8 / 2, y + 0.7 * 4.6 / 2)
-        jointDef.localAnchorA.Set(1.8 / 2, 0.7 * 4.6 / 2)
-        body.rfJoint = self.world.CreateJoint(jointDef)
-
         body.angle = self.map.cars[0][2]
-        body.lbtire.angle = self.map.cars[0][2]
-        body.lftire.angle = self.map.cars[0][2]
-        body.rbtire.angle = self.map.cars[0][2]
-        body.rftire.angle = self.map.cars[0][2]
-
-        body.lock_angle = math.radians(35)
-        body.turn_speed_per_sec = math.radians(160)
-        body.turn_per_time_step = body.turn_speed_per_sec * self.dt
 
         body.last_speed = b2.b2Vec2(0, 0)
         body.dv = b2.b2Vec2(0, 0)
         body.normal_reaction = 0
-
-        def update(acc, stop, left, right):
-
-            cur_speed = b2.b2Dot(body.GetWorldVector(b2.b2Vec2(0, 1)), body.linearVelocity)
-            cur_spoiler_coeff = max(
-                min((cur_speed - body.sploiler_min_speed) / (body.sploiler_max_speed - body.sploiler_min_speed), 1), 0)
-            if cur_speed > 2 / 3 * body.max_forward_speed:
-                # power limitation
-                acc *= (body.max_forward_speed - cur_speed) / ((1 - 2 / 3) * body.max_forward_speed) / 2 + 0.5
-
-            if cur_speed > body.max_forward_speed:
-                # speed limitation
-                acc = 0
-
-            normal_reaction = body.mass * 0.5 * 0.5 * 9.8 + body.spoiler_max_downforce * cur_spoiler_coeff * 0.25
-            body.normal_reaction = normal_reaction * 4
-            body.lftire.update_drive(normal_reaction, acc, stop)
-            body.rftire.update_drive(normal_reaction, acc, stop)
-            body.lbtire.update_drive(normal_reaction, acc, stop)
-            body.rbtire.update_drive(normal_reaction, acc, stop)
-
-            desired_angle = body.lock_angle * (left - right)
-
-            angle_now = body.rfJoint.angle
-            angle_to_turn = min(max(desired_angle - angle_now, -body.turn_per_time_step), body.turn_per_time_step)
-            new_angle = angle_now + angle_to_turn
-            body.lfJoint.SetLimits(new_angle, new_angle)
-            body.rfJoint.SetLimits(new_angle, new_angle)
-
-        body.update = update
         return body
 
     def vf(self, vec):
@@ -441,12 +262,10 @@ class Game:
         car_for = (b2.b2Dot(current_forward_normal, car.dv) / current_forward_normal.length) / (9.8 * self.dt)
 
         # overloads
-        self.draw_bar(((730, 10), (10, 50)), (40, 235, 40), max(min(car_lat / 5, 1), 0))
-        self.draw_bar(((745, 10), (10, 50)), (40, 235, 40), max(min(-car_lat / 5, 1), 0))
-        self.draw_bar(((700, 10), (10, 50)), (40, 40, 235), max(min(-car_for / 5, 1), 0))
-        self.draw_bar(((715, 10), (10, 50)), (235, 40, 40), max(min(car_for / 5, 1), 0))
-
-        self.draw_bar(((765, 10), (10, 50)), (235, 40, 40), max(min(car.normal_reaction / car.mass / 9.8 / 5, 1), 0))
+        self.draw_bar(((730, 10), (10, 50)), (40, 235, 40), max(min(car_lat / 3, 1), 0))
+        self.draw_bar(((745, 10), (10, 50)), (40, 235, 40), max(min(-car_lat / 3, 1), 0))
+        self.draw_bar(((700, 10), (10, 50)), (40, 40, 235), max(min(-car_for / 3, 1), 0))
+        self.draw_bar(((715, 10), (10, 50)), (235, 40, 40), max(min(car_for / 3, 1), 0))
 
     def draw_paths(self):
         np = [[self.world.renderer.to_screen(j) for j in i] for i in self.paths]
@@ -464,12 +283,6 @@ class Game:
         if len(np[self.cur_car]) > 1:
             pygame.draw.lines(self.screen, (self.colors['selected_car'] / 2).bytes, 0, np[self.cur_car])
 
-    def draw_tire(self, tire, color):
-        if tire.sliding:
-            self.world.renderer.DrawBody(tire, (color + self.colors['sliding_tire']) / 2)
-        else:
-            self.world.renderer.DrawBody(tire, color)
-
     def draw_world(self):
         fdraw = self.world.renderer.to_screen(self.finish[0]), self.world.renderer.to_screen(self.finish[1])
         pygame.draw.rect(self.screen, (self.colors['finish'] / 2).bytes,
@@ -486,26 +299,14 @@ class Game:
             if self.go[j] and not self.cur_car == j:
                 color = self.colors['dead_car']
                 self.world.renderer.DrawBody(self.cars[j], color)
-                self.draw_tire(self.cars[j].lbtire, color)
-                self.draw_tire(self.cars[j].lftire, color)
-                self.draw_tire(self.cars[j].rbtire, color)
-                self.draw_tire(self.cars[j].rftire, color)
 
         for j in range(self.count - 1, -1, -1):
             if not self.go[j] and not self.cur_car == j:
                 color = self.colors['car']
                 self.world.renderer.DrawBody(self.cars[j], color)
-                self.draw_tire(self.cars[j].lbtire, color)
-                self.draw_tire(self.cars[j].lftire, color)
-                self.draw_tire(self.cars[j].rbtire, color)
-                self.draw_tire(self.cars[j].rftire, color)
 
         color = self.colors['selected_car']
         self.world.renderer.DrawBody(self.cars[self.cur_car], color)
-        self.draw_tire(self.cars[self.cur_car].lbtire, color)
-        self.draw_tire(self.cars[self.cur_car].lftire, color)
-        self.draw_tire(self.cars[self.cur_car].rbtire, color)
-        self.draw_tire(self.cars[self.cur_car].rftire, color)
 
     def restart(self):
         self.time = [0] * self.count
@@ -614,8 +415,25 @@ class Game:
             if self.go[i]:
                 continue
             car = self.cars[i]
+            car_vel = car.linearVelocity.length
+            car_r = car.transform.R
+            car_r1 = car_r.col1
             inputs[i] = [max(0, min(1, i)) for i in inputs[i]]
-            car.update(*inputs[i])
+            car.linearDamping = 0.2 + 3 * inputs[i][1]
+            if car_vel != 0:
+                car.linearVelocity -= car_r1 * car_vel * (
+                    car.linearVelocity.dot(car_r1) / car_vel) * 6 * self.dt
+
+            if car_vel > 0.9:
+                _power = 40 * (inputs[i][0] * 0.5 + 0.5)
+            else:
+                _power = 40 * (inputs[i][0] * 0.5 + 0.5 - inputs[i][1])
+
+            car_angle_coeff = 6+car_vel*3.6/20
+            car.ApplyForce(
+                car_r * ((b2.b2Transform((0, 0), b2.b2Rot((inputs[i][2] - inputs[i][3]) / car_angle_coeff))) * (0, _power)),
+                (car.position + (car_r * (0, 50))),
+                True)
             self.go[i] |= self.is_finish(i)
             if self.go[i]:
                 car.linearVelocity = b2.b2Vec2(0, 0)
