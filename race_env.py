@@ -1,10 +1,9 @@
+import Box2D as b2
 import argparse
 import math
+import pygame
 import sys
 import time
-
-import Box2D as b2
-import pygame
 
 from map import Map
 
@@ -219,16 +218,15 @@ class Game:
 
     def draw_interface(self):
         car = self.cur_car
+        if car is None or self.outputs[car] is None:
+            self.screen.blit(self.font.render("No target", True, (255, 255, 255)), (250, 10))
+            return
 
-        # You can uncomment this to draw sensors:
-        # for j in range(self.count):
-        #     if self.go[j]:
-        #         continue
-        #     for i in range(len(self.sensors)):
-        #         pygame.draw.line(self.screen, (110, 110, 110, 155), self.world.renderer.to_screen(self.cars[j].position),
-        #                          self.world.renderer.to_screen(
-        #                              b2.b2Mul(self.cars[j].transform, (b2.b2Vec2(self.sensors[i]) * (
-        #                                  1 - self.outputs[j][i + 3])))))
+        for i in range(len(self.sensors)):
+            pygame.draw.line(self.screen, (110, 110, 110, 155), self.world.renderer.to_screen(self.cars[car].position),
+                             self.world.renderer.to_screen(
+                                 b2.b2Mul(self.cars[car].transform, (b2.b2Vec2(self.sensors[i]) * (
+                                     1 - self.outputs[car][i + 3])))))
 
         if not self.go[car]:
             self.draw_bar(((50, 10), (10, 50)), (40, 40, 235), self.inputs[car][0])
@@ -355,7 +353,7 @@ class Game:
 
         n = 3
         rad = 30
-        angle = math.pi / 4
+        angle = math.pi / 3
         self.sensors = [(math.sin(i * angle / n) * rad, math.cos(i * angle / n) * rad) for i in range(-n, n + 1)]
 
         if not self.gui:
@@ -415,23 +413,33 @@ class Game:
             if self.go[i]:
                 continue
             car = self.cars[i]
-            car_vel = car.linearVelocity.length
+            car_vel_l = car.linearVelocity.length
             car_r = car.transform.R
             car_r1 = car_r.col1
             inputs[i] = [max(0, min(1, i)) for i in inputs[i]]
-            car.linearDamping = 0.2 + 3 * inputs[i][1]
-            if car_vel != 0:
-                car.linearVelocity -= car_r1 * car_vel * (
-                    car.linearVelocity.dot(car_r1) / car_vel) * 6 * self.dt
+            car.linearDamping = 0.2
 
-            if car_vel > 0.9:
+            # braking
+            if inputs[i][1] > 0:
+                brake_coeff = 4 - 4 * (car_vel_l * 3.6 / 230) ** 0.5
+                car.linearDamping += brake_coeff * inputs[i][1]
+
+            # lateral friction
+            if car_vel_l != 0:
+                car.linearVelocity -= car_r1 * car_vel_l * (
+                    car.linearVelocity.dot(car_r1) / car_vel_l) * 6 * self.dt
+
+            # acceleration
+            if car_vel_l > 3:
                 _power = 40 * (inputs[i][0] * 0.5 + 0.5)
             else:
                 _power = 40 * (inputs[i][0] * 0.5 + 0.5 - inputs[i][1])
 
-            car_angle_coeff = 6+car_vel*3.6/20
+            # driving
+            angle_coeff = 6 + car_vel_l * 3.6 / 20
             car.ApplyForce(
-                car_r * ((b2.b2Transform((0, 0), b2.b2Rot((inputs[i][2] - inputs[i][3]) / car_angle_coeff))) * (0, _power)),
+                car_r * (
+                    (b2.b2Transform((0, 0), b2.b2Rot((inputs[i][2] - inputs[i][3]) / angle_coeff))) * (0, _power)),
                 (car.position + (car_r * (0, 50))),
                 True)
             self.go[i] |= self.is_finish(i)
@@ -448,13 +456,14 @@ class Game:
             car_pos = car.position
             car_r = car.transform.R
             current_right_normal = car.GetWorldVector(b2.b2Vec2(1, 0))
-            car_lat = (b2.b2Dot(current_right_normal,
-                                (car.last_speed - car.linearVelocity)) / current_right_normal.length) / (9.8 * self.dt)
-            car.dv = b2.b2Vec2(car.last_speed - car.linearVelocity)
+            car_vel = car.linearVelocity
 
-            car.last_speed = b2.b2Vec2(car.linearVelocity)
+            car.dv = b2.b2Vec2(car.last_speed - car_vel)
+            car_lat = (b2.b2Dot(current_right_normal, car.dv) / current_right_normal.length) / (9.8 * self.dt)
 
-            outputs[i] = [min(max(car.linearVelocity.length / (330 / 3.6), 0), 1),
+            car.last_speed = b2.b2Vec2(car_vel)
+
+            outputs[i] = [min(max(car_vel.length / (330 / 3.6), 0), 1),
                           min(max(car_lat / 3, 0), 1),
                           min(max(-car_lat / 3, 0), 1)]
 
@@ -556,11 +565,13 @@ class Game:
         if not self.gui:
             return
 
-        if self.ticks % 10 == 0:
+        if self.ticks % 5 == 0:
             for i in range(self.count):
                 if self.go[i]:
                     continue
-                self.paths[i].append(b2.b2Vec2(self.cars[i].position.x, self.cars[i].position.y))
+                p = b2.b2Vec2(self.cars[i].position.x, self.cars[i].position.y)
+                if len(self.paths[i]) == 0 or (p - self.paths[i][-1]).length > 1:
+                    self.paths[i].append(p)
 
     def get_fitness(self, i):
         return self.get_min_dist(i) * 1000 + self.is_really_finish(i) * (self.max_time - self.time[i]) * 100
