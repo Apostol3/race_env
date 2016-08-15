@@ -1,9 +1,10 @@
-import Box2D as b2
 import argparse
 import math
-import pygame
 import sys
 import time
+
+import Box2D as b2
+import pygame
 
 from map import Map
 
@@ -110,12 +111,14 @@ class RayCastClosestCallback(b2.b2RayCastCallback):
     def __init__(self):
         b2.b2RayCastCallback.__init__(self)
         self.fraction = 1
+        self.filter = 65535
 
     def ReportFixture(self, fixture, point, normal, fraction):
         if fixture.filterData.categoryBits != 1:
             return -1
 
         self.fraction = fraction
+        self.filter = fixture.filterData.maskBits
         return fraction
 
 
@@ -128,9 +131,9 @@ class Game:
         #     self.map.size[1] / self.scale + 100)
 
         self.inputs = [[0] * 4 for _ in range(count)]
-        self.outputs = [[0] * 10 for _ in range(count)]
+        self.outputs = [[0] * 17 for _ in range(count)]
 
-        self.count = count
+        self.count = min(count, len(self.map.cars))
         self.cars = [None for _ in range(count)]
         self.cur_car = 0
 
@@ -175,7 +178,7 @@ class Game:
         fix_def = b2.b2FixtureDef()
         fix_def.friction = 0.3
         fix_def.restitution = 0.1
-        fix_def.filter.categoryBits = 2
+        fix_def.filter.categoryBits = 1
         fix_def.filter.maskBits = 1
 
         fix_def.shape = b2.b2PolygonShape(box=(1.8 / 2, 4.6 / 2))
@@ -222,13 +225,16 @@ class Game:
             self.screen.blit(self.font.render("No target", True, (255, 255, 255)), (250, 10))
             return
 
-        for i in range(len(self.sensors)):
-            pygame.draw.line(self.screen, (110, 110, 110, 155), self.world.renderer.to_screen(self.cars[car].position),
-                             self.world.renderer.to_screen(
-                                 b2.b2Mul(self.cars[car].transform, (b2.b2Vec2(self.sensors[i]) * (
-                                     1 - self.outputs[car][i + 3])))))
-
         if not self.go[car]:
+            sensors = (len(self.outputs[car]) - 3) // 2
+
+            for i in range(len(self.sensors)):
+                sensor_color = (130, 80, 80, 155) if self.outputs[car][i + 3 + sensors] else (110, 110, 110, 155)
+                pygame.draw.line(self.screen, sensor_color, self.world.renderer.to_screen(self.cars[car].position),
+                                 self.world.renderer.to_screen(
+                                     b2.b2Mul(self.cars[car].transform, (b2.b2Vec2(self.sensors[i]) * (
+                                         1 - self.outputs[car][i + 3])))))
+
             self.draw_bar(((50, 10), (10, 50)), (40, 40, 235), self.inputs[car][0])
             self.draw_bar(((65, 10), (10, 50)), (235, 40, 40), self.inputs[car][1])
             self.draw_bar(((80, 10), (10, 50)), (40, 235, 40), self.inputs[car][2])
@@ -238,8 +244,11 @@ class Game:
             self.draw_bar(((365, 10), (10, 50)), (220, 220, 40), self.outputs[car][1])
             self.draw_bar(((380, 10), (10, 50)), (220, 220, 40), self.outputs[car][2])
 
-            for i in range(3, len(self.outputs[car])):
-                self.draw_bar(((350 + i * 15, 10), (10, 50)), (220, 220, 220), self.outputs[car][i])
+            for i in range(sensors):
+                self.draw_bar(((395 + (i) * 9, 10), (10, 50)), (220, 220, 220), self.outputs[car][i + 3])
+            for i in range(sensors):
+                self.draw_bar(((395 + sensors * 9 + 5 + (i) * 9, 10), (10, 50)), (230, 130, 130),
+                              self.outputs[car][i + 3 + sensors])
 
         self.screen.blit(self.font.render("Time: {:.2f}".format(self.time[car]), True, (255, 255, 255)),
                          (250, 10))
@@ -312,7 +321,7 @@ class Game:
         self.go = [False] * self.count
         self.paths = [[] for _ in range(self.count)]
         self.inputs = [[0] * 4 for _ in range(self.count)]
-        self.outputs = [[0] * 10 for _ in range(self.count)]
+        self.outputs = [[0] * 17 for _ in range(self.count)]
         self.world = b2.b2World((0, 0), True)
 
         self.r = r = self.map.size[0]
@@ -345,7 +354,7 @@ class Game:
             sh = i.shape
             self.all_dist += (b2.b2Vec2(sh.vertices[1]) - b2.b2Vec2(sh.vertices[0])).length
 
-        self.cars = [self.create_car(*self.mf(self.map.cars[0][:2])) for _ in range(self.count)]
+        self.cars = [self.create_car(*self.mf(self.map.cars[i][:2])) for i in range(self.count)]
         self.cur_car = 0
         fin = [self.mf(self.map.finish[0]), self.mf(self.map.finish[1])]
         self.finish = (min(fin[0][0], fin[1][0]), min(fin[0][1], fin[1][1])), \
@@ -445,6 +454,7 @@ class Game:
             self.go[i] |= self.is_finish(i)
             if self.go[i]:
                 car.linearVelocity = b2.b2Vec2(0, 0)
+                car.fixtures[0].filterData.categoryBits = 2
 
     def get(self):
         outputs = [None for _ in range(self.count)]
@@ -467,10 +477,14 @@ class Game:
                           min(max(car_lat / 3, 0), 1),
                           min(max(-car_lat / 3, 0), 1)]
 
+            sensor_types = []
             for j in self.sensors:
                 callback.fraction = 1
                 self.world.RayCast(callback, car_pos, car_pos + car_r * j)
                 outputs[i].append(min(max(1 - callback.fraction, 0), 1))
+                sensor_types.append(callback.fraction != 1 and callback.filter == 1)
+
+            outputs[i].extend(sensor_types)
 
         return outputs
 
@@ -479,7 +493,8 @@ class Game:
                 self.finish[0][1] < self.cars[j].position.y < self.finish[1][1])
 
     def is_finish(self, j):
-        return self.is_really_finish(j) or any(i.contact.touching for i in self.cars[j].contacts_gen) \
+        return self.is_really_finish(j) or any(
+            i.contact.touching and i.contact.fixtureA.filterData.maskBits != 1 for i in self.cars[j].contacts_gen) \
                or self.time[j] > self.max_time
 
     def get_min_dist(self, j):
@@ -570,7 +585,7 @@ class Game:
                 if self.go[i]:
                     continue
                 p = b2.b2Vec2(self.cars[i].position.x, self.cars[i].position.y)
-                if len(self.paths[i]) == 0 or (p - self.paths[i][-1]).length > 1:
+                if len(self.paths[i]) == 0 or (p - self.paths[i][-1]).length > 2:
                     self.paths[i].append(p)
 
     def get_fitness(self, i):
@@ -585,7 +600,7 @@ def main():
 
     map_ = Map.open_from_file(args.file)
 
-    game = Game(2, map_, True)
+    game = Game(4, map_, True)
     game.restart()
 
     old_time = time.perf_counter()

@@ -31,16 +31,17 @@ args = parser.parse_args()
 print("initializing... ", end="", flush=True)
 pipe_str = "\\\\.\\pipe\\{}"
 pipe_name = args.pipe_name
+map_ = Map.open_from_file(args.file)
 
 esi = pynlab.EStartInfo()
-esi.count = args.count
-esi.incount = 10
+esi.count = min(args.count, len(map_.cars))
+esi.incount = 17
 esi.outcount = 4
 esi.mode = pynlab.SendModes.specified
 
 last_time = time.perf_counter()
 lab = pynlab.NLab(pipe_str.format(pipe_name))
-map_ = Map.open_from_file(args.file)
+
 game = race_env.Game(esi.count, map_, args.gui)
 game.restart()
 print("complete")
