@@ -123,8 +123,13 @@ class RayCastClosestCallback(b2.b2RayCastCallback):
 
 
 class Game:
-    def __init__(self, count, map_, gui):
+    def __init__(self, count, map_, gui, mode='time'):
         self.gui = gui
+
+        # mode:
+        # * 'race' - challenge mode with collisions
+        # * 'time' - time mode
+        self.mode = mode
 
         self.map = map_
         # self.size = self.width, self.height = int(self.map.size[0] / self.scale), int(
@@ -178,7 +183,7 @@ class Game:
         fix_def = b2.b2FixtureDef()
         fix_def.friction = 0.3
         fix_def.restitution = 0.1
-        fix_def.filter.categoryBits = 1
+        fix_def.filter.categoryBits = 2 if self.mode == 'time' else 1
         fix_def.filter.maskBits = 1
 
         fix_def.shape = b2.b2PolygonShape(box=(1.8 / 2, 4.6 / 2))
@@ -354,7 +359,11 @@ class Game:
             sh = i.shape
             self.all_dist += (b2.b2Vec2(sh.vertices[1]) - b2.b2Vec2(sh.vertices[0])).length
 
-        self.cars = [self.create_car(*self.mf(self.map.cars[i][:2])) for i in range(self.count)]
+        if self.mode == 'race':
+            self.cars = [self.create_car(*self.mf(self.map.cars[i][:2])) for i in range(self.count)]
+        else:
+            self.cars = [self.create_car(*self.mf(self.map.cars[0][:2])) for _ in range(self.count)]
+
         self.cur_car = 0
         fin = [self.mf(self.map.finish[0]), self.mf(self.map.finish[1])]
         self.finish = (min(fin[0][0], fin[1][0]), min(fin[0][1], fin[1][1])), \
@@ -596,11 +605,13 @@ def main():
     parser = argparse.ArgumentParser(description="race environment for nlab (MANUAL MODE)")
     parser.add_argument("file", metavar="file", type=str, help="map file (default: %(default)s)", nargs='?',
                         default="default.json")
+    parser.add_argument("--challenge", help="challenge mode with collisions", action="store_true",
+                        dest="challenge")
     args = parser.parse_args()
 
     map_ = Map.open_from_file(args.file)
-
-    game = Game(4, map_, True)
+    mode = 'race' if args.challenge else 'time'
+    game = Game(4, map_, True, mode)
     game.restart()
 
     old_time = time.perf_counter()

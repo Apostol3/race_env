@@ -26,15 +26,18 @@ parser.add_argument("-c", "--count", help="number of players (default: %(default
                     metavar="n", type=above_zero, dest="count", default=25)
 parser.add_argument("--no-gui", help="do not show gui", action="store_false",
                     dest="gui")
+parser.add_argument("--challenge", help="challenge mode with collisions", action="store_true",
+                    dest="challenge")
 args = parser.parse_args()
 
 print("initializing... ", end="", flush=True)
 pipe_str = "\\\\.\\pipe\\{}"
 pipe_name = args.pipe_name
 map_ = Map.open_from_file(args.file)
+mode = 'race' if args.challenge else 'time'
 
 esi = pynlab.EStartInfo()
-esi.count = min(args.count, len(map_.cars))
+esi.count = min(args.count, len(map_.cars)) if mode == 'race' else args.count
 esi.incount = 17
 esi.outcount = 4
 esi.mode = pynlab.SendModes.specified
@@ -42,7 +45,7 @@ esi.mode = pynlab.SendModes.specified
 last_time = time.perf_counter()
 lab = pynlab.NLab(pipe_str.format(pipe_name))
 
-game = race_env.Game(esi.count, map_, args.gui)
+game = race_env.Game(esi.count, map_, args.gui, mode)
 game.restart()
 print("complete")
 
