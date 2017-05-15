@@ -20,8 +20,9 @@ def above_zero(string):
 parser = argparse.ArgumentParser(description="race environment for nlab")
 parser.add_argument("file", metavar="file", type=str, help="map file (default: %(default)s)", nargs='?',
                     default="default.json")
-parser.add_argument("-p", "--pipe", help="pipe name (default: %(default)s)",
-                    metavar="name", type=str, dest="pipe_name", default="nlab")
+parser.add_argument("-u", "--uri",
+                    help="connection URI in format '[tcp|winpipe]://hostname(/pipe_name|:port)'(default: %(default)s",
+                    metavar="uri", type=str, dest="connection_uri", default="tcp://127.0.0.1:5005")
 parser.add_argument("-c", "--count", help="number of players (default: %(default)s)",
                     metavar="n", type=above_zero, dest="count", default=25)
 parser.add_argument("--no-gui", help="do not show gui", action="store_false",
@@ -31,8 +32,6 @@ parser.add_argument("--challenge", help="challenge mode with collisions", action
 args = parser.parse_args()
 
 print("initializing... ", end="", flush=True)
-pipe_str = "\\\\.\\pipe\\{}"
-pipe_name = args.pipe_name
 map_ = Map.open_from_file(args.file)
 mode = 'race' if args.challenge else 'time'
 
@@ -43,13 +42,13 @@ esi.outcount = 4
 esi.mode = pynlab.SendModes.specified
 
 last_time = time.perf_counter()
-lab = pynlab.NLab(pipe_str.format(pipe_name))
+lab = pynlab.NLab(args.connection_uri)
 
 game = race_env.Game(esi.count, map_, args.gui, mode)
 game.restart()
 print("complete")
 
-print("connecting to nlab at pipe \"{}\"... ".format(pipe_str.format(pipe_name)), end="", flush=True)
+print("connecting to nlab at {}... ".format(args.connection_uri), end="", flush=True)
 lab.connect()
 print("connected")
 

@@ -138,7 +138,7 @@ class Game:
         self.inputs = [[0] * 4 for _ in range(count)]
         self.outputs = [[0] * 17 for _ in range(count)]
 
-        self.count = min(count, len(self.map.cars))
+        self.count = min(count, len(self.map.cars)) if self.mode == 'race' else count
         self.cars = [None for _ in range(count)]
         self.cur_car = 0
 
