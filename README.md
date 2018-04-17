@@ -1,8 +1,9 @@
 # Race environment for nlab
 
-Require: [pynlab](https://github.com/Apostol3/pynlab),
-[Box2D](https://github.com/pybox2d/pybox2d),
-[pygame](http://www.pygame.org/download.shtml)
+Require:
+* [pynlab](https://github.com/Apostol3/pynlab)
+* [Box2D](https://github.com/pybox2d/pybox2d) >= 2.3.2
+* [pygame](http://www.pygame.org/download.shtml)
 
 ````
 usage: main.py [-h] [-p name] [-c n] [--no-gui] [--challenge] [file]
@@ -18,8 +19,8 @@ optional arguments:
   --challenge           challenge mode with collisions
 ````
 
-Also you can launch in "manual" mode. To do this run `race_env.py` file.
-Controls - Arrow keys. Press Enter to restart environment.
+Also you can launch race_env in the "manual" mode. To do this run `race_env.py` file.
+Controls - Arrow keys. Press Enter to restart.
 
 ````
 usage: race_env.py [-h] [--challenge] [file]
@@ -32,5 +33,5 @@ optional arguments:
   --challenge  challenge mode with collisions
 ````
 
-###Screenshot of custom map:
+### Screenshot with the default map:
 ![screenshot](./screenshot.png)

@@ -30,8 +30,8 @@ class PygameDraw(b2.b2DrawExtended):
 
     def DrawTransform(self, xf):
         p1 = xf.position
-        p2 = self.to_screen(p1 + self.axisScale * xf.R.col1)
-        p3 = self.to_screen(p1 + self.axisScale * xf.R.col2)
+        p2 = self.to_screen(p1 + self.axisScale * xf.R.x_axis)
+        p3 = self.to_screen(p1 + self.axisScale * xf.R.y_axis)
         p1 = self.to_screen(p1)
 
         pygame.draw.aaline(self.surface, (255, 0, 0), p1, p2)
@@ -370,7 +370,7 @@ class Game:
                       (max(fin[0][0], fin[1][0]), max(fin[0][1], fin[1][1]))
 
         n = 3
-        rad = 30
+        rad = 60
         angle = math.pi / 3
         self.sensors = [(math.sin(i * angle / n) * rad, math.cos(i * angle / n) * rad) for i in range(-n, n + 1)]
 
@@ -433,7 +433,7 @@ class Game:
             car = self.cars[i]
             car_vel_l = car.linearVelocity.length
             car_r = car.transform.R
-            car_r1 = car_r.col1
+            car_r1 = car_r.x_axis
             inputs[i] = [max(0, min(1, i)) for i in inputs[i]]
             car.linearDamping = 0.2
 
