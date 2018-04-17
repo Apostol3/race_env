@@ -55,6 +55,7 @@ print("connected")
 print("waiting for start information from nlab... ", end="", flush=True)
 lab.set_start_info(esi)
 lab.get_start_info()
+print("round seed: {}".format(lab.get_state.round_seed))
 print("ok")
 
 print("working")
@@ -88,6 +89,7 @@ while lab.is_ok != pynlab.VerificationHeader.stop:
     game.restart()
 
     lab.get()
+    print("round seed: {}".format(lab.get_state.round_seed))
     if lab.is_ok == pynlab.VerificationHeader.stop:
         print("get stop header from nlab. stopping")
         exit()
