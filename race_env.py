@@ -320,7 +320,8 @@ class Game:
         color = self.colors['selected_car']
         self.world.renderer.DrawBody(self.cars[self.cur_car], color)
 
-    def restart(self):
+    def restart(self, map_=None):
+        self.map = map_ if map_ else self.map
         self.time = [0] * self.count
         self.ticks = 0
         self.go = [False] * self.count
